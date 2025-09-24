@@ -26,6 +26,7 @@ module.exports = async (req, res) => {
     const claims = verifyToken(req.headers['authorization']);
     const tenantId = claims.tenantId;
 
+    // Día objetivo: ?day=YYYY-MM-DD (UTC). Default: ayer UTC
     let day = parseDayParam(req.query || {});
     if (!day){
       const y = new Date(Date.now() - 86400000);
@@ -45,7 +46,9 @@ module.exports = async (req, res) => {
 
     const accountSid = String(tenant.twilio.accountSid).trim();
     const authToken  = String(tenant.twilio.authToken).trim();
-    const client = twilio(accountSid, authToken);
+
+    // Intento de opciones de reintento (silencioso si la lib no las soporta)
+    const client = twilio(accountSid, authToken, { autoRetry: true, maxRetries: 3 });
 
     const col = db.collection('messages');
     try { await col.createIndex({ tenantId:1, sid:1 }, { unique:true }); } catch {}
@@ -58,15 +61,18 @@ module.exports = async (req, res) => {
     function pushOp(m){
       const sent    = m.dateSent    ? new Date(m.dateSent)    : null;
       const created = m.dateCreated ? new Date(m.dateCreated) : null;
-
-      // Persistimos la fecha "principal" como sent si existe, sino created
-      const primaryDate = sent || created || now;
+      const updated = m.dateUpdated ? new Date(m.dateUpdated) : null;
 
       const doc = {
         tenantId,
         sid: m.sid,
         accountSid: m.accountSid || accountSid,
-        dateSentUtc: primaryDate,
+        // Compat: mantenemos dateSentUtc como principal (prefiere sent)
+        dateSentUtc: sent || created || now,
+        // Nuevos campos para trazabilidad
+        dateCreatedUtc: created || now,
+        dateUpdatedUtc: updated || null,
+
         from: m.from,
         to: m.to,
         direction: m.direction,
@@ -113,7 +119,30 @@ module.exports = async (req, res) => {
       }
     }
 
-    // Recorremos sin filtros de fecha y cortamos cuando lo que queda es anterior al día
+    // ===== PASADA 1: traer TODOS los outbound por dateSent (garantiza 100% enviados del día) =====
+    async function fetchOutboundBySentRange(rangeStart, rangeEnd){
+      let page = await withRetry(() =>
+        client.messages.page({
+          dateSentAfter:  rangeStart,
+          dateSentBefore: rangeEnd,
+          pageSize: 1000
+        })
+      );
+
+      while (page){
+        for (const m of page.instances){
+          if (!m.direction || !/^outbound/i.test(m.direction)) continue;
+          pushOp(m);
+          fetched++;
+          if (batch.length >= BATCH_SIZE) await flush();
+        }
+        page = page.hasNextPage ? await withRetry(() => page.nextPage()) : null;
+      }
+    }
+
+    await fetchOutboundBySentRange(start, end);
+
+    // ===== PASADA 2 (fallback inbound/otros sin sent): recorrer desde lo más nuevo y cortar por ventana =====
     let page = await withRetry(() => client.messages.page({ pageSize: 1000 }));
     let stop = false;
 
@@ -123,7 +152,7 @@ module.exports = async (req, res) => {
         const created  = m.dateCreated ? new Date(m.dateCreated) : null;
         const updated  = m.dateUpdated ? new Date(m.dateUpdated) : null;
 
-        // Decidir si cortar: usamos el timestamp MÁS RECIENTE disponible
+        // Usamos el timestamp MÁS RECIENTE para decidir corte de paginación
         const candidates = [];
         if (sent)    candidates.push(sent.getTime());
         if (created) candidates.push(created.getTime());
@@ -131,29 +160,26 @@ module.exports = async (req, res) => {
         const newestTs = candidates.length ? Math.max(...candidates) : 0;
 
         if (newestTs && newestTs < start.getTime()){
-          // A partir de acá todo debería ser más viejo, cortamos paginación
-          stop = true;
-          break;
+          stop = true; break;
         }
 
-        // Pertenencia al día: priorizamos SENT; si no hay SENT, usamos CREATED
+        // Evitar reprocesar outbound (ya entraron por la pasada 1)
+        if (m.direction && /^outbound/i.test(m.direction)) continue;
+
+        // Para inbound y mensajes sin sent, usamos ventana por CREATED (y de backup por SENT)
         const inRange =
-          (sent    && sent    >= start && sent    < end) ||
-          (!sent && created && created >= start && created < end);
+          (created && created >= start && created < end) ||
+          (sent && sent >= start && sent < end);
 
-        if (inRange){
-          fetched++;
-          pushOp(m);
-          if (batch.length >= BATCH_SIZE) await flush();
-        }
+        if (!inRange) continue;
+
+        pushOp(m);
+        fetched++;
+        if (batch.length >= BATCH_SIZE) await flush();
       }
 
       if (!stop){
-        if (page.hasNextPage){
-          page = await withRetry(() => page.nextPage());
-        } else {
-          page = null;
-        }
+        page = page.hasNextPage ? await withRetry(() => page.nextPage()) : null;
       }
     }
 
