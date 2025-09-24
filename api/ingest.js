@@ -16,7 +16,12 @@ function toUtcRange(dayStr){
 }
 
 module.exports = async (req, res) => {
-  if (req.method !== 'POST'){ res.setHeader('Allow','POST'); res.statusCode=405; return res.end(JSON.stringify({ok:false,error:'Method Not Allowed'})); }
+  if (req.method !== 'POST'){
+    res.setHeader('Allow','POST');
+    res.statusCode = 405;
+    return res.end(JSON.stringify({ ok:false, error:'Method Not Allowed' }));
+  }
+
   try{
     const claims = verifyToken(req.headers['authorization']);
     const tenantId = claims.tenantId;
@@ -24,7 +29,9 @@ module.exports = async (req, res) => {
     let day = parseDayParam(req.query || {});
     if (!day){
       const y = new Date(Date.now() - 86400000);
-      const yyyy = y.getUTCFullYear(); const mm = String(y.getUTCMonth()+1).padStart(2,'0'); const dd = String(y.getUTCDate()).padStart(2,'0');
+      const yyyy = y.getUTCFullYear();
+      const mm = String(y.getUTCMonth()+1).padStart(2,'0');
+      const dd = String(y.getUTCDate()).padStart(2,'0');
       day = `${yyyy}-${mm}-${dd}`;
     }
     const { start, end } = toUtcRange(day);
@@ -32,50 +39,112 @@ module.exports = async (req, res) => {
     const db = await getDb();
     const tenant = await db.collection('tenants').findOne({ tenantId, status:'active' });
     if (!tenant || !tenant.twilio || !tenant.twilio.accountSid || !tenant.twilio.authToken){
-      res.statusCode = 400; return res.end(JSON.stringify({ ok:false, error:'twilio_credentials_missing' }));
+      res.statusCode = 400;
+      return res.end(JSON.stringify({ ok:false, error:'twilio_credentials_missing' }));
     }
+
     const accountSid = String(tenant.twilio.accountSid).trim();
     const authToken  = String(tenant.twilio.authToken).trim();
     const client = twilio(accountSid, authToken);
+
     const col = db.collection('messages');
     try { await col.createIndex({ tenantId:1, sid:1 }, { unique:true }); } catch {}
 
-    let fetched=0, upserts=0, batch=[]; const BATCH_SIZE=500; const now=new Date();
+    let fetched = 0;
+    let upserts = 0;
+    let batch = [];
+    const BATCH_SIZE = 500;
+    const now = new Date();
+
     function pushOp(m){
       const doc = {
-        tenantId, sid: m.sid, accountSid: m.accountSid || accountSid,
+        tenantId,
+        sid: m.sid,
+        accountSid: m.accountSid || accountSid,
         dateSentUtc: m.dateSent ? new Date(m.dateSent) : (m.dateCreated ? new Date(m.dateCreated) : now),
-        from: m.from, to: m.to, direction: m.direction, status: m.status,
+        from: m.from,
+        to: m.to,
+        direction: m.direction,
+        status: m.status,
         numSegments: Number(m.numSegments || 0),
-        price: m.price != null ? Number(m.price) : null, priceUnit: m.priceUnit || null,
-        errorCode: m.errorCode != null ? String(m.errorCode) : null, errorMessage: m.errorMessage || null,
+        price: m.price != null ? Number(m.price) : null,
+        priceUnit: m.priceUnit || null,
+        errorCode: m.errorCode != null ? String(m.errorCode) : null,
+        errorMessage: m.errorMessage || null,
         messagingServiceSid: m.messagingServiceSid || null,
-        body: m.body || null, updatedAt: now
+        body: m.body || null,
+        updatedAt: now
       };
-      batch.push({ updateOne: { filter: { tenantId, sid: m.sid }, update: { $set: doc, $setOnInsert: { createdAt: now } }, upsert: true } });
+      batch.push({
+        updateOne: {
+          filter: { tenantId, sid: m.sid },
+          update: { $set: doc, $setOnInsert: { createdAt: now } },
+          upsert: true
+        }
+      });
     }
 
-    await new Promise((resolve, reject) => {
-      client.messages.each(
-        { dateSentAfter: start, dateSentBefore: end, pageSize: 1000 },
-        (msg) => {
-          fetched++; pushOp(msg);
-          if (batch.length >= BATCH_SIZE){
-            const ops = batch; batch = [];
-            col.bulkWrite(ops, { ordered:false }).then(r => { upserts += (r.upsertedCount || 0) + (r.modifiedCount || 0); })
-              .catch(e => console.error('bulkWrite_error', e.message));
-          }
-        },
-        (err) => err ? reject(err) : resolve()
+    async function flush(){
+      if (!batch.length) return;
+      const ops = batch;
+      batch = [];
+      try{
+        const r = await col.bulkWrite(ops, { ordered:false });
+        upserts += (r.upsertedCount || 0) + (r.modifiedCount || 0);
+      }catch(e){
+        console.error('bulkWrite_error', e.message);
+      }
+    }
+
+    async function withRetry(fn, retries = 4){
+      let attempt = 0;
+      while (true){
+        try { return await fn(); }
+        catch (e){
+          attempt++;
+          if (attempt > retries) throw e;
+          const delay = 500 * Math.pow(2, attempt - 1);
+          await new Promise(r => setTimeout(r, delay));
+        }
+      }
+    }
+
+    // Paginación robusta por ventana: recorre todas las páginas hasta hasNextPage = false
+    async function fetchAllForRange(rangeStart, rangeEnd){
+      let page = await withRetry(() =>
+        client.messages.page({
+          dateSentAfter:  rangeStart,
+          dateSentBefore: rangeEnd,
+          pageSize: 1000
+        })
       );
-    });
 
-    if (batch.length){
-      try { const r = await col.bulkWrite(batch, { ordered:false }); upserts += (r.upsertedCount || 0) + (r.modifiedCount || 0); }
-      catch(e){ console.error('bulkWrite_error_end', e.message); }
+      while (page){
+        for (const m of page.instances){
+          fetched++;
+          pushOp(m);
+          if (batch.length >= BATCH_SIZE) await flush();
+        }
+        if (page.hasNextPage){
+          page = await withRetry(() => page.nextPage());
+        } else {
+          page = null;
+        }
+      }
     }
 
-    res.statusCode=200; res.setHeader('Content-Type','application/json; charset=utf-8');
+    // Dividimos el día en 24 bloques de 1 hora para garantizar cobertura total
+    const HOUR_MS = 60 * 60 * 1000;
+    for (let i = 0; i < 24; i++){
+      const rStart = new Date(start.getTime() + i * HOUR_MS);
+      const rEnd   = new Date(Math.min(end.getTime(), rStart.getTime() + HOUR_MS));
+      await fetchAllForRange(rStart, rEnd);
+    }
+
+    await flush();
+
+    res.statusCode = 200;
+    res.setHeader('Content-Type','application/json; charset=utf-8');
     return res.end(JSON.stringify({ ok:true, day, fetched, upserts }));
   }catch(e){
     console.error('ingest_error', e && e.stack || e);
