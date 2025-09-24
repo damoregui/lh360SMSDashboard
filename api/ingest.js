@@ -1,4 +1,3 @@
-// api/ingest.js
 try { require('../lib/loadEnv'); } catch {}
 const { getDb } = require('../lib/db');
 const { verifyToken } = require('../lib/auth');
@@ -50,18 +49,19 @@ module.exports = async (req, res) => {
     const col = db.collection('messages');
     try { await col.createIndex({ tenantId:1, sid:1 }, { unique:true }); } catch {}
 
-    let fetched = 0;
-    let upserts = 0;
+    let fetched = 0, upserts = 0;
     let batch = [];
     const BATCH_SIZE = 500;
     const now = new Date();
 
     function pushOp(m){
+      const sent = m.dateSent ? new Date(m.dateSent) : null;
+      const created = m.dateCreated ? new Date(m.dateCreated) : null;
       const doc = {
         tenantId,
         sid: m.sid,
         accountSid: m.accountSid || accountSid,
-        dateSentUtc: m.dateSent ? new Date(m.dateSent) : (m.dateCreated ? new Date(m.dateCreated) : now),
+        dateSentUtc: sent || created || now,
         from: m.from,
         to: m.to,
         direction: m.direction,
@@ -86,8 +86,7 @@ module.exports = async (req, res) => {
 
     async function flush(){
       if (!batch.length) return;
-      const ops = batch;
-      batch = [];
+      const ops = batch; batch = [];
       try{
         const r = await col.bulkWrite(ops, { ordered:false });
         upserts += (r.upsertedCount || 0) + (r.modifiedCount || 0);
@@ -103,42 +102,44 @@ module.exports = async (req, res) => {
         catch (e){
           attempt++;
           if (attempt > retries) throw e;
-          const delay = 500 * Math.pow(2, attempt - 1);
-          await new Promise(r => setTimeout(r, delay));
+          await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt - 1)));
         }
       }
     }
 
-    // Paginación robusta por ventana: recorre todas las páginas hasta hasNextPage = false
-    async function fetchAllForRange(rangeStart, rangeEnd){
-      let page = await withRetry(() =>
-        client.messages.page({
-          dateSentAfter:  rangeStart,
-          dateSentBefore: rangeEnd,
-          pageSize: 1000
-        })
-      );
+    // Recorremos TODO sin filtros de fecha (para no perder inbound con dateSent=null)
+    // y cortamos cuando llegamos a mensajes anteriores al inicio del día.
+    let page = await withRetry(() => client.messages.page({ pageSize: 1000 }));
+    let stop = false;
 
-      while (page){
-        for (const m of page.instances){
+    while (page && !stop){
+      for (const m of page.instances){
+        const created = m.dateCreated ? new Date(m.dateCreated) : null;
+        const sent    = m.dateSent    ? new Date(m.dateSent)    : null;
+
+        // Cortamos cuando lo que queda ya es más viejo que el inicio del día (orden es "más nuevo primero")
+        const reference = created || sent;
+        if (reference && reference < start) { stop = true; break; }
+
+        // Guardamos solo los que caen dentro de [start, end)
+        const inRange =
+          (created && created >= start && created < end) ||
+          (sent    && sent    >= start && sent    < end);
+
+        if (inRange){
           fetched++;
           pushOp(m);
           if (batch.length >= BATCH_SIZE) await flush();
         }
+      }
+
+      if (!stop){
         if (page.hasNextPage){
           page = await withRetry(() => page.nextPage());
         } else {
           page = null;
         }
       }
-    }
-
-    // Dividimos el día en 24 bloques de 1 hora para garantizar cobertura total
-    const HOUR_MS = 60 * 60 * 1000;
-    for (let i = 0; i < 24; i++){
-      const rStart = new Date(start.getTime() + i * HOUR_MS);
-      const rEnd   = new Date(Math.min(end.getTime(), rStart.getTime() + HOUR_MS));
-      await fetchAllForRange(rStart, rEnd);
     }
 
     await flush();
