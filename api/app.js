@@ -23,7 +23,23 @@ button{padding:10px 14px; border-radius:12px; border:none; background:linear-gra
 .card{background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:20px; padding:16px}
 .num{font-size:28px; font-weight:700}
 .muted{color:var(--muted)}
-canvas{background:#0b1220; border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:8px}
+/* === FIX charts shrink === */
+canvas{
+  background:#0b1220;
+  border-radius:16px;
+  box-sizing: content-box;   /* evita loop con border-box */
+  display:block;
+  width:100% !important;
+  height:100% !important;
+}
+/* wrapper con altura fija + padding/borde */
+.chart-wrap{
+  height:260px; /* ajustable */
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:16px;
+  padding:8px;
+  background:#0b1220;
+}
 .err{color:var(--err); margin-top:10px}
 .loader{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.35); z-index:9999}
 .loader.hidden{display:none}
@@ -57,8 +73,8 @@ button[disabled]{opacity:.6; cursor:not-allowed}
   </div>
 
   <div class="grid" style="grid-template-columns: repeat(2, minmax(0,1fr));">
-    <div class="card"><canvas id="statusChart" height="200"></canvas></div>
-    <div class="card"><canvas id="dirChart" height="200"></canvas></div>
+    <div class="card"><div class="chart-wrap"><canvas id="statusChart"></canvas></div></div>
+    <div class="card"><div class="chart-wrap"><canvas id="dirChart"></canvas></div></div>
   </div>
 
   <div class="grid" style="grid-template-columns: repeat(3, minmax(0,1fr));">
@@ -125,7 +141,12 @@ async function loadMetrics(){
     statusChart = new Chart(document.getElementById('statusChart'), {
       type: 'bar',
       data: { labels: sLabels, datasets: [{ label: 'Status', data: sData, backgroundColor: colors }] },
-      options: { responsive:true, plugins:{ legend:{ display:false } }, scales:{ y: { beginAtZero:true } } }
+      options: {
+        responsive:true,
+        maintainAspectRatio:false,   // importante
+        plugins:{ legend:{ display:false } },
+        scales:{ y: { beginAtZero:true } }
+      }
     });
 
     const dLabels = ['Outbound','Inbound'];
@@ -134,7 +155,11 @@ async function loadMetrics(){
     dirChart = new Chart(document.getElementById('dirChart'), {
       type: 'doughnut',
       data: { labels: dLabels, datasets: [{ data: dData, backgroundColor: ['#22c55e','#0ea5e9'] }] },
-      options: { responsive:true, plugins:{ legend:{ position:'bottom' } } }
+      options: {
+        responsive:true,
+        maintainAspectRatio:false,   // importante
+        plugins:{ legend:{ position:'bottom' } }
+      }
     });
 
     const errDiv = document.getElementById('errors');
