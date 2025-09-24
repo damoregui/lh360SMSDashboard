@@ -1,3 +1,4 @@
+// api/ingest.js
 try { require('../lib/loadEnv'); } catch {}
 const { getDb } = require('../lib/db');
 const { verifyToken } = require('../lib/auth');
@@ -55,13 +56,17 @@ module.exports = async (req, res) => {
     const now = new Date();
 
     function pushOp(m){
-      const sent = m.dateSent ? new Date(m.dateSent) : null;
+      const sent    = m.dateSent    ? new Date(m.dateSent)    : null;
       const created = m.dateCreated ? new Date(m.dateCreated) : null;
+
+      // Persistimos la fecha "principal" como sent si existe, sino created
+      const primaryDate = sent || created || now;
+
       const doc = {
         tenantId,
         sid: m.sid,
         accountSid: m.accountSid || accountSid,
-        dateSentUtc: sent || created || now,
+        dateSentUtc: primaryDate,
         from: m.from,
         to: m.to,
         direction: m.direction,
@@ -75,6 +80,7 @@ module.exports = async (req, res) => {
         body: m.body || null,
         updatedAt: now
       };
+
       batch.push({
         updateOne: {
           filter: { tenantId, sid: m.sid },
@@ -107,24 +113,33 @@ module.exports = async (req, res) => {
       }
     }
 
-    // Recorremos TODO sin filtros de fecha (para no perder inbound con dateSent=null)
-    // y cortamos cuando llegamos a mensajes anteriores al inicio del día.
+    // Recorremos sin filtros de fecha y cortamos cuando lo que queda es anterior al día
     let page = await withRetry(() => client.messages.page({ pageSize: 1000 }));
     let stop = false;
 
     while (page && !stop){
       for (const m of page.instances){
-        const created = m.dateCreated ? new Date(m.dateCreated) : null;
-        const sent    = m.dateSent    ? new Date(m.dateSent)    : null;
+        const sent     = m.dateSent    ? new Date(m.dateSent)    : null;
+        const created  = m.dateCreated ? new Date(m.dateCreated) : null;
+        const updated  = m.dateUpdated ? new Date(m.dateUpdated) : null;
 
-        // Cortamos cuando lo que queda ya es más viejo que el inicio del día (orden es "más nuevo primero")
-        const reference = created || sent;
-        if (reference && reference < start) { stop = true; break; }
+        // Decidir si cortar: usamos el timestamp MÁS RECIENTE disponible
+        const candidates = [];
+        if (sent)    candidates.push(sent.getTime());
+        if (created) candidates.push(created.getTime());
+        if (updated) candidates.push(updated.getTime());
+        const newestTs = candidates.length ? Math.max(...candidates) : 0;
 
-        // Guardamos solo los que caen dentro de [start, end)
+        if (newestTs && newestTs < start.getTime()){
+          // A partir de acá todo debería ser más viejo, cortamos paginación
+          stop = true;
+          break;
+        }
+
+        // Pertenencia al día: priorizamos SENT; si no hay SENT, usamos CREATED
         const inRange =
-          (created && created >= start && created < end) ||
-          (sent    && sent    >= start && sent    < end);
+          (sent    && sent    >= start && sent    < end) ||
+          (!sent && created && created >= start && created < end);
 
         if (inRange){
           fetched++;
