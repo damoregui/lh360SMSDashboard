@@ -26,7 +26,6 @@ module.exports = async (req, res) => {
     const claims = verifyToken(req.headers['authorization']);
     const tenantId = claims.tenantId;
 
-    // Día objetivo: ?day=YYYY-MM-DD (UTC). Default: ayer UTC
     let day = parseDayParam(req.query || {});
     if (!day){
       const y = new Date(Date.now() - 86400000);
@@ -46,14 +45,12 @@ module.exports = async (req, res) => {
 
     const accountSid = String(tenant.twilio.accountSid).trim();
     const authToken  = String(tenant.twilio.authToken).trim();
-
-    // Intento de opciones de reintento (silencioso si la lib no las soporta)
-    const client = twilio(accountSid, authToken, { autoRetry: true, maxRetries: 3 });
+    const client = twilio(accountSid, authToken);
 
     const col = db.collection('messages');
     try { await col.createIndex({ tenantId:1, sid:1 }, { unique:true }); } catch {}
 
-    let fetched = 0, upserts = 0;
+    let fetched = 0, upserts = 0, pages = 0;
     let batch = [];
     const BATCH_SIZE = 500;
     const now = new Date();
@@ -61,18 +58,13 @@ module.exports = async (req, res) => {
     function pushOp(m){
       const sent    = m.dateSent    ? new Date(m.dateSent)    : null;
       const created = m.dateCreated ? new Date(m.dateCreated) : null;
-      const updated = m.dateUpdated ? new Date(m.dateUpdated) : null;
+      const primaryDate = sent || created || now;
 
       const doc = {
         tenantId,
         sid: m.sid,
         accountSid: m.accountSid || accountSid,
-        // Compat: mantenemos dateSentUtc como principal (prefiere sent)
-        dateSentUtc: sent || created || now,
-        // Nuevos campos para trazabilidad
-        dateCreatedUtc: created || now,
-        dateUpdatedUtc: updated || null,
-
+        dateSentUtc: primaryDate,                  // MISMO CAMPO que antes
         from: m.from,
         to: m.to,
         direction: m.direction,
@@ -119,65 +111,40 @@ module.exports = async (req, res) => {
       }
     }
 
-    // ===== PASADA 1: traer TODOS los outbound por dateSent (garantiza 100% enviados del día) =====
-    async function fetchOutboundBySentRange(rangeStart, rangeEnd){
-      let page = await withRetry(() =>
-        client.messages.page({
-          dateSentAfter:  rangeStart,
-          dateSentBefore: rangeEnd,
-          pageSize: 1000
-        })
-      );
-
-      while (page){
-        for (const m of page.instances){
-          if (!m.direction || !/^outbound/i.test(m.direction)) continue;
-          pushOp(m);
-          fetched++;
-          if (batch.length >= BATCH_SIZE) await flush();
-        }
-        page = page.hasNextPage ? await withRetry(() => page.nextPage()) : null;
-      }
+    function newestTsOf(msg){
+      const ts = [];
+      if (msg.dateSent) ts.push(new Date(msg.dateSent).getTime());
+      if (msg.dateCreated) ts.push(new Date(msg.dateCreated).getTime());
+      if (msg.dateUpdated) ts.push(new Date(msg.dateUpdated).getTime());
+      return ts.length ? Math.max(...ts) : 0;
     }
 
-    await fetchOutboundBySentRange(start, end);
+    function isInRange(msg){
+      const sent    = msg.dateSent    ? new Date(msg.dateSent)    : null;
+      const created = msg.dateCreated ? new Date(msg.dateCreated) : null;
+      return Boolean(
+        (sent && sent >= start && sent < end) ||
+        (!sent && created && created >= start && created < end)
+      );
+    }
 
-    // ===== PASADA 2 (fallback inbound/otros sin sent): recorrer desde lo más nuevo y cortar por ventana =====
+    // ======= LÓGICA 100% COBERTURA =======
+    // NO usamos filtros por dateSent en Twilio. Paginamos newest-first y cortamos por tiempo.
     let page = await withRetry(() => client.messages.page({ pageSize: 1000 }));
     let stop = false;
 
     while (page && !stop){
+      pages++;
       for (const m of page.instances){
-        const sent     = m.dateSent    ? new Date(m.dateSent)    : null;
-        const created  = m.dateCreated ? new Date(m.dateCreated) : null;
-        const updated  = m.dateUpdated ? new Date(m.dateUpdated) : null;
-
-        // Usamos el timestamp MÁS RECIENTE para decidir corte de paginación
-        const candidates = [];
-        if (sent)    candidates.push(sent.getTime());
-        if (created) candidates.push(created.getTime());
-        if (updated) candidates.push(updated.getTime());
-        const newestTs = candidates.length ? Math.max(...candidates) : 0;
-
-        if (newestTs && newestTs < start.getTime()){
+        const newest = newestTsOf(m);
+        if (newest && newest < start.getTime()){
           stop = true; break;
         }
-
-        // Evitar reprocesar outbound (ya entraron por la pasada 1)
-        if (m.direction && /^outbound/i.test(m.direction)) continue;
-
-        // Para inbound y mensajes sin sent, usamos ventana por CREATED (y de backup por SENT)
-        const inRange =
-          (created && created >= start && created < end) ||
-          (sent && sent >= start && sent < end);
-
-        if (!inRange) continue;
-
-        pushOp(m);
+        if (!isInRange(m)) continue;
         fetched++;
+        pushOp(m);
         if (batch.length >= BATCH_SIZE) await flush();
       }
-
       if (!stop){
         page = page.hasNextPage ? await withRetry(() => page.nextPage()) : null;
       }
@@ -187,7 +154,7 @@ module.exports = async (req, res) => {
 
     res.statusCode = 200;
     res.setHeader('Content-Type','application/json; charset=utf-8');
-    return res.end(JSON.stringify({ ok:true, day, fetched, upserts }));
+    return res.end(JSON.stringify({ ok:true, day, fetched, upserts, pages }));
   }catch(e){
     console.error('ingest_error', e && e.stack || e);
     const status = e.message === 'invalid_token' ? 401 : 500;
