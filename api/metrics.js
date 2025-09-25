@@ -9,7 +9,9 @@ function parseDate(s){
 }
 function rangeUtc(from, to){
   const f = new Date(from + 'T00:00:00.000Z');
-  const e = new Date(to   + 'T23:59:59.999Z');
+  // make end exclusive at next day 00:00Z to match ingest/CSV logic
+  const endDay = new Date(to + 'T00:00:00.000Z');
+  const e = new Date(endDay.getTime() + 24*60*60*1000);
   return { start:f, end:e };
 }
 const OUTBOUND_SET = new Set(['outbound','outbound-api','outgoing']);
@@ -27,7 +29,7 @@ module.exports = async (req, res) => {
 
     const db = await getDb();
     const cur = db.collection('messages').find(
-      { tenantId, dateSentUtc: { $gte: start, $lte: end } },
+      { tenantId, dateSentUtc: { $gte: start, $lt: end } },
       { projection: { direction:1, status:1, errorCode:1, numSegments:1, price:1 } }
     );
 
