@@ -63,8 +63,17 @@ button[disabled]{opacity:.6; cursor:not-allowed}
       <input id="to" type="date">
     </div>
     <button id="load">Load metrics</button>
-    <button id="ingest">Ingest Yesterday</button>
-  </div>
+    <button id="ingestOpen">Ingest specific day</button>
+  
+    <div id="ingestMenu" style="display:none; gap:8px; align-items:end; margin-top:8px">
+      <div>
+        <div class="muted" style="font-size:12px">Pick a day (UTC)</div>
+        <input id="ingestDate" type="date">
+      </div>
+      <button id="ingestRun">Run ingest</button>
+      <button id="ingestCancel" class="muted" style="background:#0b1220;border:1px solid #26334d">Cancel</button>
+    </div>
+
 
   <div class="grid">
     <div class="card"><div class="muted">Outbound</div><div class="num" id="outbound">0</div></div>
@@ -178,10 +187,6 @@ async function loadMetrics(){
   } finally { setLoading(false); }
 }
 
-async function ingestYesterday(){
-  errorBox.textContent = '';
-  const t = sessionStorage.getItem('authToken');
-  if (!t){ errorBox.textContent = 'No token. Go back to / and login.'; return; }
   setLoading(true);
   try{
     const d = ymd(new Date(Date.now() - 86400000));
@@ -204,8 +209,66 @@ async function refreshToken(){
 setInterval(refreshToken, 10 * 60 * 1000);
 
 document.getElementById('load').addEventListener('click', loadMetrics);
-document.getElementById('ingest').addEventListener('click', ingestYesterday);
+document.getElementById('ingestOpen').addEventListener('click', showIngestMenu);
+document.getElementById('ingestRun').addEventListener('click', runIngestSpecificDay);
+document.getElementById('ingestCancel').addEventListener('click', hideIngestMenu);
 loadMetrics();
+
+function setDateLimits(){
+  const input = document.getElementById('ingestDate');
+  const now = new Date();
+  const y   = new Date(now.getFullYear(), now.getMonth(), now.getDate()-1);
+  const yyyy = y.getFullYear();
+  const mm   = String(y.getMonth()+1).padStart(2,'0');
+  const dd   = String(y.getDate()).padStart(2,'0');
+  const ymd  = `${yyyy}-${mm}-${dd}`;
+  input.max = ymd;         // no hoy ni futuro
+  input.value = ymd;       // por default: ayer
+}
+
+function showIngestMenu(){
+  errorBox.textContent = '';
+  setDateLimits();
+  document.getElementById('ingestMenu').style.display='flex';
+}
+function hideIngestMenu(){
+  document.getElementById('ingestMenu').style.display='none';
+}
+
+async function runIngestSpecificDay(){
+  errorBox.textContent = '';
+  const t = sessionStorage.getItem('authToken');
+  if (!t){ errorBox.textContent = 'No token. Go back to / and login.'; return; }
+  const input = document.getElementById('ingestDate');
+  const d = (input.value||'').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)){
+    errorBox.textContent = 'Please pick a valid date (YYYY-MM-DD).';
+    return;
+  }
+  // validate not today/future
+  const today = new Date(); today.setHours(0,0,0,0);
+  const picked = new Date(d + 'T00:00:00');
+  const diffDays = Math.round((picked - today)/(24*60*60*1000));
+  if (diffDays >= 0){
+    errorBox.textContent = 'Only yesterday or earlier is allowed.';
+    return;
+  }
+  setLoading(true);
+  try{
+    const r = await fetch('/api/ingest?day=' + d, { method:'POST', headers: { 'authorization': 'Bearer ' + t } });
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok){
+      throw new Error(j && j.error || 'ingest_failed');
+    }
+    await loadMetrics();
+  }catch(e){
+    errorBox.textContent = e.message || 'Ingest failed.';
+  } finally {
+    setLoading(false);
+    hideIngestMenu();
+  }
+}
+
 </script>
 </body>
 </html>`);

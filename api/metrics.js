@@ -9,9 +9,7 @@ function parseDate(s){
 }
 function rangeUtc(from, to){
   const f = new Date(from + 'T00:00:00.000Z');
-  // make end exclusive at next day 00:00Z to match ingest/CSV logic
-  const endDay = new Date(to + 'T00:00:00.000Z');
-  const e = new Date(endDay.getTime() + 24*60*60*1000);
+  const e = new Date(new Date(to + 'T00:00:00.000Z').getTime() + 24*60*60*1000);
   return { start:f, end:e };
 }
 const OUTBOUND_SET = new Set(['outbound','outbound-api','outgoing']);
