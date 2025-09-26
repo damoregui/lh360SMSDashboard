@@ -85,9 +85,23 @@ module.exports = (req, res) => {
 '    <div class="card"><div class="muted">Total Price (abs)</div><div class="num" id="priceAbs">0</div></div>\n' +
 '  </div>\n' +
 '\n' +
+'  <!-- NEW: Unique Prospects & STOP -->\n' +
+'  <div class="grid" style="grid-template-columns: repeat(2, minmax(0,1fr)); margin-top:12px">\n' +
+'    <div class="card">\n' +
+'      <div class="muted">Unique Prospects (outbound)</div>\n' +
+'      <div class="num" id="uniqueProspectsTotal">0</div>\n' +
+'      <div class="muted" id="uniqueProspectsSample" style="font-size:12px; margin-top:6px"></div>\n' +
+'    </div>\n' +
+'    <div class="card">\n' +
+'      <div class="muted">STOP (inbound)</div>\n' +
+'      <div class="num" id="stopCount">0</div>\n' +
+'    </div>\n' +
+'  </div>\n' +
+'\n' +
+'  <!-- NEW: Repeat Responders list -->\n' +
 '  <div class="card" style="margin-top:12px">\n' +
-'    <div class="muted">Errors (by code)</div>\n' +
-'    <div id="errors"></div>\n' +
+'    <div class="muted">Repeat Responders (&gt;1 replies)</div>\n' +
+'    <div id="repeatResponders" style="margin-top:6px"></div>\n' +
 '    <div id="e" class="err"></div>\n' +
 '  </div>\n' +
 '</div>\n' +
@@ -150,19 +164,45 @@ module.exports = (req, res) => {
 '      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom" } } }\n' +
 '    });\n' +
 '\n' +
-'    const errDiv = document.getElementById("errors");\n' +
-'    errDiv.innerHTML = "";\n' +
-'    const entries = Object.entries(data.byError || {}).sort((a,b)=> b[1]-a[1]);\n' +
-'    if (entries.length){\n' +
-'      const ul = document.createElement("ul");\n' +
-'      ul.style.margin = "8px 0 0"; ul.style.paddingLeft = "16px";\n' +
-'      for (const [code, count] of entries){\n' +
-'        const li = document.createElement("li");\n' +
-'        li.textContent = code + ": " + count;\n' +
-'        ul.appendChild(li);\n' +
-'      }\n' +
-'      errDiv.appendChild(ul);\n' +
+'    // NEW: Unique Prospects & STOP\n' +
+'    document.getElementById("uniqueProspectsTotal").textContent = data.uniqueProspectsTotal || 0;\n' +
+'    const sampleDiv = document.getElementById("uniqueProspectsSample");\n' +
+'    const list = data.uniqueProspects || [];\n' +
+'    const maxShow = 30;\n' +
+'    if (list.length){\n' +
+'      const shown = list.slice(0, maxShow);\n' +
+'      const more  = Math.max(0, (data.uniqueProspectsTotal||0) - shown.length);\n' +
+'      sampleDiv.textContent = shown.join(" · ") + (more ? " · … +" + more + " more" : "");\n' +
+'    } else {\n' +
+'      sampleDiv.textContent = "";\n' +
 '    }\n' +
+'    document.getElementById("stopCount").textContent = data.stopCount || 0;\n' +
+'\n' +
+'    // NEW: Repeat Responders list\n' +
+'    const rrDiv = document.getElementById("repeatResponders");\n' +
+'    rrDiv.innerHTML = "";\n' +
+'    const rr = data.repeatResponders || [];\n' +
+'    if (rr.length){\n' +
+'      const table = document.createElement("table");\n' +
+'      table.style.width = "100%";\n' +
+'      table.style.borderCollapse = "collapse";\n' +
+'      const thead = document.createElement("thead");\n' +
+'      const trh = document.createElement("tr");\n' +
+'      ["Phone","Replies"].forEach(h=>{ const th=document.createElement("th"); th.textContent=h; th.style.textAlign="left"; th.style.padding="6px 8px"; th.style.color="var(--muted)"; trh.appendChild(th); });\n' +
+'      thead.appendChild(trh); table.appendChild(thead);\n' +
+'      const tbody = document.createElement("tbody");\n' +
+'      rr.forEach(r => {\n' +
+'        const tr = document.createElement("tr");\n' +
+'        const td1 = document.createElement("td"); td1.textContent = r.phone || "(unknown)"; td1.style.padding="6px 8px";\n' +
+'        const td2 = document.createElement("td"); td2.textContent = r.count; td2.style.padding="6px 8px";\n' +
+'        tr.appendChild(td1); tr.appendChild(td2); tbody.appendChild(tr);\n' +
+'      });\n' +
+'      table.appendChild(tbody);\n' +
+'      rrDiv.appendChild(table);\n' +
+'    } else {\n' +
+'      const em = document.createElement("div"); em.className="muted"; em.textContent="No repeat responders in range."; rrDiv.appendChild(em);\n' +
+'    }\n' +
+'\n' +
 '  }catch(e){\n' +
 '    errorBox.textContent = e.message || "Failed to load metrics.";\n' +
 '  }\n' +
@@ -213,20 +253,11 @@ module.exports = (req, res) => {
 '  const t = sessionStorage.getItem("authToken");\n' +
 '  if (!t){ errorBox.textContent = "No token. Go back to / and login."; return; }\n' +
 '  const input = document.getElementById("ingestDate");\n' +
-'\n' +
-'  // Validación robusta usando el control nativo (sin regex)\n' +
-'  if (!input.value) {\n' +
-'    errorBox.textContent = "Please pick a valid date (YYYY-MM-DD).";\n' +
-'    return;\n' +
-'  }\n' +
-'  const d = input.value; // "YYYY-MM-DD"\n' +
+'  if (!input.value) { errorBox.textContent = "Please pick a valid date (YYYY-MM-DD)."; return; }\n' +
+'  const d = input.value; // YYYY-MM-DD\n' +
 '  const picked = new Date(d + "T00:00:00Z");\n' +
 '  const today = new Date(); today.setUTCHours(0,0,0,0);\n' +
-'  if (picked >= today){\n' +
-'    errorBox.textContent = "Only yesterday or earlier is allowed.";\n' +
-'    return;\n' +
-'  }\n' +
-'\n' +
+'  if (picked >= today){ errorBox.textContent = "Only yesterday or earlier is allowed."; return; }\n' +
 '  setLoading(true);\n' +
 '  try{\n' +
 '    const r = await fetch("/api/ingest?day=" + d, { method:"POST", headers: { "authorization": "Bearer " + t } });\n' +
