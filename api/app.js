@@ -5,11 +5,13 @@ module.exports = (req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control","no-store, no-cache, must-revalidate, max-age=0");
 
-    const html = '<!doctype html>\n' +
+    const html =
+'<!doctype html>\n' +
 '<html lang="en">\n' +
 '<head>\n' +
 '<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>\n' +
 '<title>SMS Dashboard</title>\n' +
+'<link rel="icon" href="data:,">\n' + /* evita 404 favicon */
 '<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>\n' +
 '<style>\n' +
 ':root { --bg:#0f172a; --muted:#94a3b8; --acc:#22c55e; --err:#ef4444; }\n' +
@@ -85,171 +87,143 @@ module.exports = (req, res) => {
 '</div>\n' +
 '\n' +
 '<script>\n' +
-'const errorBox = document.getElementById("e");\n' +
-'const from = document.getElementById("from");\n' +
-'const to = document.getElementById("to");\n' +
+'window.addEventListener("DOMContentLoaded", () => {\n' +
+'  // Helpers DOM seguros\n' +
+'  const $ = (id) => document.getElementById(id);\n' +
+'  const errorBox = $("e");\n' +
+'  const from = $("from");\n' +
+'  const to = $("to");\n' +
 '\n' +
-'function ymd(d){\n' +
-'  const yyyy = d.getUTCFullYear();\n' +
-'  const mm = String(d.getUTCMonth()+1).padStart(2,"0");\n' +
-'  const dd = String(d.getUTCDate()).padStart(2,"0");\n' +
-'  return yyyy + "-" + mm + "-" + dd;\n' +
-'}\n' +
-'const token = sessionStorage.getItem("authToken") || new URL(location.href).searchParams.get("t");\n' +
-'if (token) sessionStorage.setItem("authToken", token);\n' +
+'  function ymd(d){ const yyyy=d.getUTCFullYear(); const mm=String(d.getUTCMonth()+1).padStart(2,"0"); const dd=String(d.getUTCDate()).padStart(2,"0"); return yyyy+"-"+mm+"-"+dd; }\n' +
+'  const token = sessionStorage.getItem("authToken") || new URL(location.href).searchParams.get("t");\n' +
+'  if (token) sessionStorage.setItem("authToken", token);\n' +
 '\n' +
-'const yesterday = new Date(Date.now() - 86400000);\n' +
-'from.value = ymd(yesterday);\n' +
-'to.value = ymd(yesterday);\n' +
+'  if (from && to){ const y=new Date(Date.now()-86400000); from.value=ymd(y); to.value=ymd(y); }\n' +
 '\n' +
-'let statusChart, dirChart;\n' +
-'function fmtTsISO(iso){ try{ const d=new Date(iso); return d.toISOString().replace("T"," ").replace(".000Z","Z"); }catch{ return iso||"" } }\n' +
-'// FIX: escapado simple y seguro (sin objeto con comillas)\n' +
-'function esc(s){ return (s==null?\'\':String(s)).replace(/&/g,\'&amp;\').replace(/</g,\'&lt;\').replace(/>/g,\'&gt;\').replace(/"/g,\'&quot;\'); }\n' +
+'  let statusChart, dirChart;\n' +
+'  function fmtTsISO(iso){ try{ const d=new Date(iso); return d.toISOString().replace("T"," ").replace(".000Z","Z"); }catch{ return iso||"" } }\n' +
+'  function esc(s){ return (s==null?\'\':String(s)).replace(/&/g,\'&amp;\').replace(/</g,\'&lt;\').replace(/>/g,\'&gt;\').replace(/"/g,\'&quot;\'); }\n' +
 '\n' +
-'async function loadMetrics(){\n' +
-'  errorBox.textContent = "";\n' +
-'  const t = sessionStorage.getItem("authToken");\n' +
-'  if (!t){ errorBox.textContent = "No token. Go back to / and login."; return; }\n' +
-'  const f = from.value.trim();\n' +
-'  const tt = to.value.trim();\n' +
-'  if (!f || !tt){ errorBox.textContent = "Pick dates."; return; }\n' +
+'  async function loadMetrics(){\n' +
+'    if (!errorBox) return;\n' +
+'    errorBox.textContent = "";\n' +
+'    const t = sessionStorage.getItem("authToken");\n' +
+'    if (!t){ errorBox.textContent = "No token. Go back to / and login."; return; }\n' +
+'    if (!from || !to){ errorBox.textContent = "Missing date inputs in DOM."; return; }\n' +
+'    const f = (from.value||"").trim();\n' +
+'    const tt = (to.value||"").trim();\n' +
+'    if (!f || !tt){ errorBox.textContent = "Pick dates."; return; }\n' +
+'    try{\n' +
+'      const r = await fetch("/api/metrics?from=" + f + "&to=" + tt, { headers: { "authorization":"Bearer " + t } });\n' +
+'      const data = await r.json();\n' +
+'      if (!r.ok){ throw new Error((data && data.error) || "metrics_failed"); }\n' +
+'      const setNum = (id,val)=>{ const el=$(id); if (el) el.textContent = val||0; };\n' +
+'      setNum("segments", data.sumSegments);\n' +
+'      setNum("stopCount", data.stopCount);\n' +
+'      setNum("priceAbs", data.totalPriceAbs);\n' +
+'      setNum("uniqueProspectsTotal", data.uniqueProspectsTotal);\n' +
 '\n' +
-'  try{\n' +
-'    const r = await fetch("/api/metrics?from=" + f + "&to=" + tt, { headers: { "authorization":"Bearer " + t } });\n' +
-'    const data = await r.json();\n' +
-'    if (!r.ok){ throw new Error((data && data.error) || "metrics_failed"); }\n' +
-'\n' +
-'    document.getElementById("segments").textContent = data.sumSegments || 0;\n' +
-'    document.getElementById("stopCount").textContent = data.stopCount || 0;\n' +
-'    document.getElementById("priceAbs").textContent = data.totalPriceAbs || 0;\n' +
-'    document.getElementById("uniqueProspectsTotal").textContent = data.uniqueProspectsTotal || 0;\n' +
-'\n' +
-'    const sLabels = Object.keys(data.byStatus || {});\n' +
-'    const sData   = sLabels.map(k => data.byStatus[k]);\n' +
-'    if (statusChart) statusChart.destroy();\n' +
-'    statusChart = new Chart(document.getElementById("statusChart"), {\n' +
-'      type: "bar",\n' +
-'      data: { labels: sLabels, datasets: [{ data: sData }] },\n' +
-'      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } } }\n' +
-'    });\n' +
-'\n' +
-'    const dLabels = ["Outbound", "Inbound"];\n' +
-'    const dData = [data.outbound, data.inbound];\n' +
-'    if (dirChart) dirChart.destroy();\n' +
-'    dirChart = new Chart(document.getElementById("dirChart"), {\n' +
-'      type: "doughnut",\n' +
-'      data: { labels: dLabels, datasets: [{ data: dData }] },\n' +
-'      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom" } } }\n' +
-'    });\n' +
-'\n' +
-'    renderRepeatResponders(data.repeatResponders || [], f, tt);\n' +
-'\n' +
-'  }catch(e){\n' +
-'    errorBox.textContent = e.message || "Failed to load metrics.";\n' +
-'  }\n' +
-'}\n' +
-'\n' +
-'function setLoading(v){ document.body.style.pointerEvents = v ? "none" : "auto"; document.body.style.opacity = v ? .7 : 1; }\n' +
-'\n' +
-'async function refreshToken(){\n' +
-'  const t = sessionStorage.getItem("authToken"); if (!t) return;\n' +
-'  try{\n' +
-'    const r = await fetch("/api/refresh", { method:"POST", headers: { "authorization":"Bearer " + t } });\n' +
-'    const j = await r.json().catch(()=>({}));\n' +
-'    if (r.ok && j.ok && j.token) sessionStorage.setItem("authToken", j.token);\n' +
-'  }catch{}\n' +
-'}\n' +
-'setInterval(refreshToken, 10 * 60 * 1000);\n' +
-'\n' +
-'function renderRepeatResponders(rr, f, tt){\n' +
-'  const box = document.getElementById("repeatResponders");\n' +
-'  box.innerHTML = "";\n' +
-'  if (!rr.length){ const em=document.createElement("div"); em.className="muted"; em.textContent="No repeat responders in range."; return void box.appendChild(em); }\n' +
-'\n' +
-'  const table = document.createElement("table");\n' +
-'  const thead = document.createElement("thead");\n' +
-'  const trh = document.createElement("tr");\n' +
-'  ["Phone","Replies"].forEach(h=>{ const th=document.createElement("th"); th.textContent=h; trh.appendChild(th); });\n' +
-'  thead.appendChild(trh); table.appendChild(thead);\n' +
-'  const tbody = document.createElement("tbody"); table.appendChild(tbody);\n' +
-'\n' +
-'  rr.forEach(row => {\n' +
-'    const tr = document.createElement("tr"); tr.className = "expander"; tr.dataset.phone = row.phone;\n' +
-'    const td1 = document.createElement("td"); td1.textContent = row.phone || "(unknown)";\n' +
-'    const td2 = document.createElement("td"); td2.textContent = row.count;\n' +
-'    tr.appendChild(td1); tr.appendChild(td2); tbody.appendChild(tr);\n' +
-'\n' +
-'    const trMsg = document.createElement("tr"); trMsg.style.display = "none";\n' +
-'    const tdMsg = document.createElement("td"); tdMsg.colSpan = 2; tdMsg.style.padding = "0 8px 8px";\n' +
-'    const holder = document.createElement("div"); holder.className="messages"; holder.textContent="";\n' +
-'    tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);\n' +
-'\n' +
-'    let loaded = false; let open = false;\n' +
-'    tr.addEventListener("click", async () => {\n' +
-'      open = !open; trMsg.style.display = open ? "" : "none";\n' +
-'      if (!loaded && open){\n' +
-'        holder.textContent = "Loading...";\n' +
-'        try{\n' +
-'          const t = sessionStorage.getItem("authToken");\n' +
-'          const url = "/api/responder?phone=" + encodeURIComponent(row.phone) + "&from=" + encodeURIComponent(f) + "&to=" + encodeURIComponent(tt);\n' +
-'          const r = await fetch(url, { headers: { "authorization":"Bearer " + t } });\n' +
-'          const j = await r.json();\n' +
-'          if (!r.ok || !j.ok){ throw new Error((j && j.error) || "fetch_failed"); }\n' +
-'          holder.innerHTML = "";\n' +
-'          if (!j.messages || !j.messages.length){ holder.textContent = "No inbound messages for this number."; loaded = true; return; }\n' +
-'          j.messages.forEach(m => {\n' +
-'            const div = document.createElement("div"); div.className="msg";\n' +
-'            const ts = document.createElement("span"); ts.className="ts"; ts.textContent = fmtTsISO(m.dateSentUtc);\n' +
-'            const body = document.createElement("span"); body.innerHTML = esc(m.body);\n' +
-'            div.appendChild(ts); div.appendChild(body); holder.appendChild(div);\n' +
-'          });\n' +
-'          loaded = true;\n' +
-'        }catch(e){ holder.textContent = (e && e.message) || "Failed to load messages."; }\n' +
+'      const sLabels = Object.keys(data.byStatus || {});\n' +
+'      const sData   = sLabels.map(k => data.byStatus[k]);\n' +
+'      if (statusChart) statusChart.destroy();\n' +
+'      if ($("statusChart")){\n' +
+'        statusChart = new Chart($("statusChart"), {\n' +
+'          type: "bar", data: { labels: sLabels, datasets: [{ data: sData }] },\n' +
+'          options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } } }\n' +
+'        });\n' +
 '      }\n' +
+'\n' +
+'      if (dirChart) dirChart.destroy();\n' +
+'      if ($("dirChart")){\n' +
+'        const dLabels = ["Outbound","Inbound"]; const dData=[data.outbound, data.inbound];\n' +
+'        dirChart = new Chart($("dirChart"), {\n' +
+'          type: "doughnut", data: { labels: dLabels, datasets: [{ data: dData }] },\n' +
+'          options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom" } } }\n' +
+'        });\n' +
+'      }\n' +
+'\n' +
+'      renderRepeatResponders(data.repeatResponders || [], f, tt);\n' +
+'    }catch(e){ errorBox.textContent = e.message || "Failed to load metrics."; }\n' +
+'  }\n' +
+'\n' +
+'  function setLoading(v){ document.body.style.pointerEvents = v ? "none" : "auto"; document.body.style.opacity = v ? .7 : 1; }\n' +
+'\n' +
+'  async function refreshToken(){\n' +
+'    const t = sessionStorage.getItem("authToken"); if (!t) return;\n' +
+'    try{ const r = await fetch("/api/refresh", { method:"POST", headers: { "authorization":"Bearer " + t } }); const j = await r.json().catch(()=>({})); if (r.ok && j.ok && j.token) sessionStorage.setItem("authToken", j.token); }catch{}\n' +
+'  }\n' +
+'  setInterval(refreshToken, 10 * 60 * 1000);\n' +
+'\n' +
+'  function renderRepeatResponders(rr, f, tt){\n' +
+'    const box = $("repeatResponders"); if (!box) return; box.innerHTML = "";\n' +
+'    if (!rr.length){ const em=document.createElement("div"); em.className="muted"; em.textContent="No repeat responders in range."; box.appendChild(em); return; }\n' +
+'    const table=document.createElement("table"); const thead=document.createElement("thead"); const trh=document.createElement("tr");\n' +
+'    ["Phone","Replies"].forEach(h=>{ const th=document.createElement("th"); th.textContent=h; trh.appendChild(th); }); thead.appendChild(trh); table.appendChild(thead);\n' +
+'    const tbody=document.createElement("tbody"); table.appendChild(tbody);\n' +
+'    rr.forEach(row=>{\n' +
+'      const tr=document.createElement("tr"); tr.className="expander"; tr.dataset.phone=row.phone;\n' +
+'      const td1=document.createElement("td"); td1.textContent=row.phone||"(unknown)";\n' +
+'      const td2=document.createElement("td"); td2.textContent=row.count; tr.appendChild(td1); tr.appendChild(td2); tbody.appendChild(tr);\n' +
+'      const trMsg=document.createElement("tr"); trMsg.style.display="none"; const tdMsg=document.createElement("td"); tdMsg.colSpan=2; tdMsg.style.padding="0 8px 8px";\n' +
+'      const holder=document.createElement("div"); holder.className="messages"; holder.textContent=""; tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);\n' +
+'      let loaded=false, open=false;\n' +
+'      tr.addEventListener("click", async ()=>{\n' +
+'        open=!open; trMsg.style.display=open?"":"none";\n' +
+'        if (!loaded && open){\n' +
+'          holder.textContent="Loading...";\n' +
+'          try{\n' +
+'            const t=sessionStorage.getItem("authToken");\n' +
+'            const url="/api/responder?phone="+encodeURIComponent(row.phone)+"&from="+encodeURIComponent(f)+"&to="+encodeURIComponent(tt);\n' +
+'            const r=await fetch(url,{ headers:{ "authorization":"Bearer "+t }}); const j=await r.json(); if(!r.ok||!j.ok) throw new Error((j&&j.error)||"fetch_failed");\n' +
+'            holder.innerHTML=""; if(!j.messages||!j.messages.length){ holder.textContent="No inbound messages for this number."; loaded=true; return; }\n' +
+'            j.messages.forEach(m=>{ const div=document.createElement("div"); div.className="msg"; const ts=document.createElement("span"); ts.className="ts"; ts.textContent=fmtTsISO(m.dateSentUtc); const body=document.createElement("span"); body.innerHTML=esc(m.body); div.appendChild(ts); div.appendChild(body); holder.appendChild(div); });\n' +
+'            loaded=true;\n' +
+'          }catch(e){ holder.textContent=(e&&e.message)||"Failed to load messages."; }\n' +
+'        }\n' +
+'      });\n' +
 '    });\n' +
-'  });\n' +
+'    box.appendChild(table);\n' +
+'  }\n' +
 '\n' +
-'  box.appendChild(table);\n' +
-'}\n' +
+'  function setDateLimits(){ const input=$("ingestDate"); if(!input) return; const now=new Date(); const y=new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()-1); const yyyy=y.getUTCFullYear(); const mm=String(y.getUTCMonth()+1).padStart(2,"0"); const dd=String(y.getUTCDate()).padStart(2,"0"); const ymdMax=yyyy+"-"+mm+"-"+dd; input.max=ymdMax; input.value=ymdMax; }\n' +
+'  function openModal(){ setDateLimits(); const m=$("ingestModal"); if(m) m.style.display="flex"; }\n' +
+'  function closeModal(){ const m=$("ingestModal"); if(m) m.style.display="none"; }\n' +
+'  document.addEventListener("keydown", (e)=>{ if (e.key==="Escape") closeModal(); });\n' +
+'  const modalEl = $("ingestModal"); if (modalEl) modalEl.addEventListener("click", (e)=>{ if (e.target.id==="ingestModal") closeModal(); });\n' +
 '\n' +
-'function setDateLimits(){\n' +
-'  const input = document.getElementById("ingestDate");\n' +
-'  const now = new Date();\n' +
-'  const y   = new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()-1);\n' +
-'  const yyyy = y.getUTCFullYear();\n' +
-'  const mm   = String(y.getUTCMonth()+1).padStart(2,"0");\n' +
-'  const dd   = String(y.getUTCDate()).padStart(2,"0");\n' +
-'  const ymdMax = yyyy + "-" + mm + "-" + dd;\n' +
-'  input.max = ymdMax; input.value = ymdMax;\n' +
-'}\n' +
-'function openModal(){ setDateLimits(); document.getElementById("ingestModal").style.display="flex"; }\n' +
-'function closeModal(){ document.getElementById("ingestModal").style.display="none"; }\n' +
-'document.addEventListener("keydown", (e)=>{ if (e.key==="Escape") closeModal(); });\n' +
-'document.getElementById("ingestModal").addEventListener("click", (e)=>{ if (e.target.id === "ingestModal") closeModal(); });\n' +
+'  async function runIngestSpecificDay(){\n' +
+'    if (!errorBox) return;\n' +
+'    errorBox.textContent=""; const t=sessionStorage.getItem("authToken"); if(!t){ errorBox.textContent="No token. Go back to / and login."; return; }\n' +
+'    const input=$("ingestDate"); if(!input||!input.value){ errorBox.textContent="Please pick a valid date (YYYY-MM-DD)."; return; }\n' +
+'    const d=input.value; const picked=new Date(d+"T00:00:00Z"); const today=new Date(); today.setUTCHours(0,0,0,0); if(picked>=today){ errorBox.textContent="Only yesterday or earlier is allowed."; return; }\n' +
+'    setLoading(true);\n' +
+'    try{ const r=await fetch("/api/ingest?day="+d,{ method:"POST", headers:{ "authorization":"Bearer "+t }}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error((j&&j.error)||"ingest_failed"); await loadMetrics(); }\n' +
+'    catch(e){ errorBox.textContent=e.message||"Ingest failed."; }\n' +
+'    finally{ setLoading(false); closeModal(); }\n' +
+'  }\n' +
 '\n' +
-'async function runIngestSpecificDay(){\n' +
-'  errorBox.textContent = "";\n' +
-'  const t = sessionStorage.getItem("authToken"); if (!t){ errorBox.textContent = "No token. Go back to / and login."; return; }\n' +
-'  const input = document.getElementById("ingestDate"); if (!input.value) { errorBox.textContent = "Please pick a valid date (YYYY-MM-DD)."; return; }\n' +
-'  const d = input.value; const picked = new Date(d + "T00:00:00Z"); const today = new Date(); today.setUTCHours(0,0,0,0);\n' +
-'  if (picked >= today){ errorBox.textContent = "Only yesterday or earlier is allowed."; return; }\n' +
-'  setLoading(true);\n' +
-'  try{\n' +
-'    const r = await fetch("/api/ingest?day=" + d, { method:"POST", headers: { "authorization": "Bearer " + t } });\n' +
-'    const j = await r.json().catch(()=>({})); if (!r.ok){ throw new Error((j && j.error) || "ingest_failed"); }\n' +
-'    await loadMetrics();\n' +
-'  }catch(e){ errorBox.textContent = e.message || "Ingest failed."; }\n' +
-'  finally { setLoading(false); closeModal(); }\n' +
-'}\n' +
+'  // Enlazar eventos SOLO si existen los elementos\n' +
+'  const btnLoad=$("load"); if (btnLoad) btnLoad.addEventListener("click", loadMetrics);\n' +
+'  const btnOpen=$("ingestOpen"); if (btnOpen) btnOpen.addEventListener("click", openModal);\n' +
+'  const btnRun=$("ingestRun"); if (btnRun) btnRun.addEventListener("click", runIngestSpecificDay);\n' +
+'  const btnCancel=$("ingestCancel"); if (btnCancel) btnCancel.addEventListener("click", closeModal);\n' +
 '\n' +
-'document.getElementById("load").addEventListener("click", loadMetrics);\n' +
-'document.getElementById("ingestOpen").addEventListener("click", openModal);\n' +
-'document.getElementById("ingestRun").addEventListener("click", runIngestSpecificDay);\n' +
-'document.getElementById("ingestCancel").addEventListener("click", closeModal);\n' +
-'\n' +
-'loadMetrics();\n' +
+'  // Cargar de entrada\n' +
+'  loadMetrics();\n' +
+'});\n' + // DOMContentLoaded
 '</script>\n' +
+'\n' +
+'<!-- Modal al final para estar seguro de que existe en DOM antes del JS -->\n' +
+'<div id="ingestModal" class="modal-backdrop">\n' +
+'  <div class="modal">\n' +
+'    <div class="muted" style="font-size:12px;margin-bottom:6px">Pick a day (UTC)</div>\n' +
+'    <div class="row">\n' +
+'      <input id="ingestDate" type="date">\n' +
+'      <button id="ingestRun">Run ingest</button>\n' +
+'      <button id="ingestCancel" class="muted" style="background:#0b1220;border:1px solid #26334d">Cancel</button>\n' +
+'    </div>\n' +
+'  </div>\n' +
+'</div>\n' +
 '</body>\n' +
 '</html>\n';
 
