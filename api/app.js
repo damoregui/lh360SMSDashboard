@@ -213,17 +213,20 @@ module.exports = (req, res) => {
 '  const t = sessionStorage.getItem("authToken");\n' +
 '  if (!t){ errorBox.textContent = "No token. Go back to / and login."; return; }\n' +
 '  const input = document.getElementById("ingestDate");\n' +
-'  const d = (input.value||"").trim();\n' +
-'  if (!/^\\\\d{4}-\\\\d{2}-\\\\d{2}$/.test(d)){\n' + // note: \\d to render \d in the delivered HTML
+'\n' +
+'  // Validación robusta usando el control nativo (sin regex)\n' +
+'  if (!input.value) {\n' +
 '    errorBox.textContent = "Please pick a valid date (YYYY-MM-DD).";\n' +
 '    return;\n' +
 '  }\n' +
-'  const today = new Date(); today.setUTCHours(0,0,0,0);\n' +
+'  const d = input.value; // "YYYY-MM-DD"\n' +
 '  const picked = new Date(d + "T00:00:00Z");\n' +
+'  const today = new Date(); today.setUTCHours(0,0,0,0);\n' +
 '  if (picked >= today){\n' +
 '    errorBox.textContent = "Only yesterday or earlier is allowed.";\n' +
 '    return;\n' +
 '  }\n' +
+'\n' +
 '  setLoading(true);\n' +
 '  try{\n' +
 '    const r = await fetch("/api/ingest?day=" + d, { method:"POST", headers: { "authorization": "Bearer " + t } });\n' +
