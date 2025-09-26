@@ -22,7 +22,7 @@ module.exports = (req, res) => {
 'input,button,select{padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.12); background:#0b1220; color:white; outline:none}\n' +
 'button{cursor:pointer; background:linear-gradient(180deg,#22c55e,#16a34a); border:none}\n' +
 '.card{background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:20px; padding:16px}\n' +
-'.grid{display:grid; gap:12px; grid-template-columns: repeat(3,minmax(0,1fr))}\n' +
+'.grid{display:grid; gap:12px}\n' +
 '.num{font-size:28px; font-weight:700}\n' +
 '.muted{color:var(--muted)}\n' +
 '.chart-wrap{height:260px}\n' +
@@ -65,37 +65,18 @@ module.exports = (req, res) => {
 '    <button id="ingestOpen">Ingest specific day</button>\n' +
 '  </div>\n' +
 '\n' +
-'  <!-- Modal for specific day ingest -->\n' +
-'  <div id="ingestModal" class="modal-backdrop">\n' +
-'    <div class="modal">\n' +
-'      <div class="muted" style="font-size:12px;margin-bottom:6px">Pick a day (UTC)</div>\n' +
-'      <div class="row">\n' +
-'        <input id="ingestDate" type="date">\n' +
-'        <button id="ingestRun">Run ingest</button>\n' +
-'        <button id="ingestCancel" class="muted" style="background:#0b1220;border:1px solid #26334d">Cancel</button>\n' +
-'      </div>\n' +
-'    </div>\n' +
-'  </div>\n' +
-'\n' +
-'  <!-- Totales -->\n' +
-'  <div class="grid" style="margin-top:12px">\n' +
+'  <!-- Row de totales: 4 tarjetas -->\n' +
+'  <div class="grid" style="grid-template-columns: repeat(4, minmax(0,1fr)); margin-top:12px">\n' +
 '    <div class="card"><div class="muted">Sum Segments</div><div class="num" id="segments">0</div></div>\n' +
 '    <div class="card"><div class="muted">STOP (inbound)</div><div class="num" id="stopCount">0</div></div>\n' +
 '    <div class="card"><div class="muted">Total Price (abs)</div><div class="num" id="priceAbs">0</div></div>\n' +
+'    <div class="card"><div class="muted">Unique Prospects (outbound)</div><div class="num" id="uniqueProspectsTotal">0</div></div>\n' +
 '  </div>\n' +
 '\n' +
 '  <!-- Charts -->\n' +
 '  <div class="grid" style="grid-template-columns: repeat(2, minmax(0,1fr)); margin-top:12px">\n' +
 '    <div class="card"><div class="chart-wrap"><canvas id="statusChart"></canvas></div></div>\n' +
 '    <div class="card"><div class="chart-wrap"><canvas id="dirChart"></canvas></div></div>\n' +
-'  </div>\n' +
-'\n' +
-'  <!-- Unique Prospects (solo número) -->\n' +
-'  <div class="grid" style="grid-template-columns: repeat(1, minmax(0,1fr)); margin-top:12px">\n' +
-'    <div class="card">\n' +
-'      <div class="muted">Unique Prospects (outbound)</div>\n' +
-'      <div class="num" id="uniqueProspectsTotal">0</div>\n' +
-'    </div>\n' +
 '  </div>\n' +
 '\n' +
 '  <!-- Repeat Responders con collapse -->\n' +
@@ -125,9 +106,8 @@ module.exports = (req, res) => {
 'to.value = ymd(yesterday);\n' +
 '\n' +
 'let statusChart, dirChart;\n' +
-'\n' +
-'function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;" }[c])); }\n' +
 'function fmtTsISO(iso){ try{ const d=new Date(iso); return d.toISOString().replace("T"," ").replace(".000Z","Z"); }catch{ return iso||"" } }\n' +
+'function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;" }[c])); }\n' +
 '\n' +
 'async function loadMetrics(){\n' +
 '  errorBox.textContent = "";\n' +
@@ -172,14 +152,10 @@ module.exports = (req, res) => {
 '  }\n' +
 '}\n' +
 '\n' +
-'function setLoading(v){\n' +
-'  document.body.style.pointerEvents = v ? "none" : "auto";\n' +
-'  document.body.style.opacity = v ? .7 : 1;\n' +
-'}\n' +
+'function setLoading(v){ document.body.style.pointerEvents = v ? "none" : "auto"; document.body.style.opacity = v ? .7 : 1; }\n' +
 '\n' +
 'async function refreshToken(){\n' +
-'  const t = sessionStorage.getItem("authToken");\n' +
-'  if (!t) return;\n' +
+'  const t = sessionStorage.getItem("authToken"); if (!t) return;\n' +
 '  try{\n' +
 '    const r = await fetch("/api/refresh", { method:"POST", headers: { "authorization":"Bearer " + t } });\n' +
 '    const j = await r.json().catch(()=>({}));\n' +
@@ -198,21 +174,16 @@ module.exports = (req, res) => {
 '  const trh = document.createElement("tr");\n' +
 '  ["Phone","Replies"].forEach(h=>{ const th=document.createElement("th"); th.textContent=h; trh.appendChild(th); });\n' +
 '  thead.appendChild(trh); table.appendChild(thead);\n' +
-'  const tbody = document.createElement("tbody");\n' +
-'  table.appendChild(tbody);\n' +
+'  const tbody = document.createElement("tbody"); table.appendChild(tbody);\n' +
 '\n' +
 '  rr.forEach(row => {\n' +
-'    const tr = document.createElement("tr");\n' +
-'    tr.className = "expander";\n' +
-'    tr.dataset.phone = row.phone;\n' +
+'    const tr = document.createElement("tr"); tr.className = "expander"; tr.dataset.phone = row.phone;\n' +
 '    const td1 = document.createElement("td"); td1.textContent = row.phone || "(unknown)";\n' +
 '    const td2 = document.createElement("td"); td2.textContent = row.count;\n' +
-'    tr.appendChild(td1); tr.appendChild(td2);\n' +
-'    tbody.appendChild(tr);\n' +
+'    tr.appendChild(td1); tr.appendChild(td2); tbody.appendChild(tr);\n' +
 '\n' +
-'    const trMsg = document.createElement("tr");\n' +
+'    const trMsg = document.createElement("tr"); trMsg.style.display = "none";\n' +
 '    const tdMsg = document.createElement("td"); tdMsg.colSpan = 2; tdMsg.style.padding = "0 8px 8px";\n' +
-'    trMsg.style.display = "none";\n' +
 '    const holder = document.createElement("div"); holder.className="messages"; holder.textContent="";\n' +
 '    tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);\n' +
 '\n' +
@@ -223,7 +194,7 @@ module.exports = (req, res) => {
 '        holder.textContent = "Loading...";\n' +
 '        try{\n' +
 '          const t = sessionStorage.getItem("authToken");\n' +
-'          const url = "/api/responder?from=" + encodeURIComponent(row.phone) + "&from=" + encodeURIComponent(f) + "&to=" + encodeURIComponent(tt);\n' +
+'          const url = "/api/responder?phone=" + encodeURIComponent(row.phone) + "&from=" + encodeURIComponent(f) + "&to=" + encodeURIComponent(tt);\n' +
 '          const r = await fetch(url, { headers: { "authorization":"Bearer " + t } });\n' +
 '          const j = await r.json();\n' +
 '          if (!r.ok || !j.ok){ throw new Error((j && j.error) || "fetch_failed"); }\n' +
@@ -253,8 +224,7 @@ module.exports = (req, res) => {
 '  const mm   = String(y.getUTCMonth()+1).padStart(2,"0");\n' +
 '  const dd   = String(y.getUTCDate()).padStart(2,"0");\n' +
 '  const ymdMax = yyyy + "-" + mm + "-" + dd;\n' +
-'  input.max = ymdMax;\n' +
-'  input.value = ymdMax;\n' +
+'  input.max = ymdMax; input.value = ymdMax;\n' +
 '}\n' +
 'function openModal(){ setDateLimits(); document.getElementById("ingestModal").style.display="flex"; }\n' +
 'function closeModal(){ document.getElementById("ingestModal").style.display="none"; }\n' +
@@ -263,26 +233,17 @@ module.exports = (req, res) => {
 '\n' +
 'async function runIngestSpecificDay(){\n' +
 '  errorBox.textContent = "";\n' +
-'  const t = sessionStorage.getItem("authToken");\n' +
-'  if (!t){ errorBox.textContent = "No token. Go back to / and login."; return; }\n' +
-'  const input = document.getElementById("ingestDate");\n' +
-'  if (!input.value) { errorBox.textContent = "Please pick a valid date (YYYY-MM-DD)."; return; }\n' +
-'  const d = input.value; // YYYY-MM-DD\n' +
-'  const picked = new Date(d + "T00:00:00Z");\n' +
-'  const today = new Date(); today.setUTCHours(0,0,0,0);\n' +
+'  const t = sessionStorage.getItem("authToken"); if (!t){ errorBox.textContent = "No token. Go back to / and login."; return; }\n' +
+'  const input = document.getElementById("ingestDate"); if (!input.value) { errorBox.textContent = "Please pick a valid date (YYYY-MM-DD)."; return; }\n' +
+'  const d = input.value; const picked = new Date(d + "T00:00:00Z"); const today = new Date(); today.setUTCHours(0,0,0,0);\n' +
 '  if (picked >= today){ errorBox.textContent = "Only yesterday or earlier is allowed."; return; }\n' +
 '  setLoading(true);\n' +
 '  try{\n' +
 '    const r = await fetch("/api/ingest?day=" + d, { method:"POST", headers: { "authorization": "Bearer " + t } });\n' +
-'    const j = await r.json().catch(()=>({}));\n' +
-'    if (!r.ok){ throw new Error((j && j.error) || "ingest_failed"); }\n' +
+'    const j = await r.json().catch(()=>({})); if (!r.ok){ throw new Error((j && j.error) || "ingest_failed"); }\n' +
 '    await loadMetrics();\n' +
-'  }catch(e){\n' +
-'    errorBox.textContent = e.message || "Ingest failed.";\n' +
-'  } finally {\n' +
-'    setLoading(false);\n' +
-'    closeModal();\n' +
-'  }\n' +
+'  }catch(e){ errorBox.textContent = e.message || "Ingest failed."; }\n' +
+'  finally { setLoading(false); closeModal(); }\n' +
 '}\n' +
 '\n' +
 'document.getElementById("load").addEventListener("click", loadMetrics);\n' +
