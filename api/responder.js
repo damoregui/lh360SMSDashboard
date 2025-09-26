@@ -8,6 +8,11 @@ function rangeUtc(from, to){
   const end   = new Date(new Date(to + 'T00:00:00.000Z').getTime() + 24*60*60*1000);
   return { start, end };
 }
+function getStr(q, key){
+  let v = q ? q[key] : '';
+  if (Array.isArray(v)) v = v[0];
+  return (typeof v === 'string') ? v.trim() : '';
+}
 
 module.exports = async (req, res) => {
   try{
@@ -19,31 +24,64 @@ module.exports = async (req, res) => {
     const claims = verifyToken(req.headers['authorization']);
     const tenantId = claims.tenantId;
 
-    const phone = (req.query && (req.query.from || req.query.phone) || '').trim();
-    const from  = (req.query && req.query.fromDay || req.query.from || '').trim();
-    const to    = (req.query && req.query.toDay   || req.query.to   || '').trim();
-    if (!phone || !/^\d[\d+.-]*$/.test(phone) || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)){
+    const phoneRaw = getStr(req.query, 'phone');
+    const dayFrom  = getStr(req.query, 'from')  || getStr(req.query, 'fromDay');
+    const dayTo    = getStr(req.query, 'to')    || getStr(req.query, 'toDay');
+
+    if (!phoneRaw || !/^\+?[0-9()\s.\-]+$/.test(phoneRaw) ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(dayFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dayTo)) {
       res.statusCode = 400;
       return res.end(JSON.stringify({ ok:false, error:'bad_request' }));
     }
-    const { start, end } = rangeUtc(from, to);
-    const db = await getDb();
+
+    const { start, end } = rangeUtc(dayFrom, dayTo);
+    const db  = await getDb();
     const col = db.collection('messages');
 
-    const cursor = col.find({
+    // Variantes del número
+    const digits = phoneRaw.replace(/\D/g, '');         // solo dígitos
+    const e164   = '+' + digits;                        // +E164
+    const noPlus = digits;                              // sin +
+    const variants = Array.from(new Set([phoneRaw, e164, noPlus]));
+
+    // 1) Intento rápido por igualdad exacta a cualquiera de las variantes
+    let items = await col.find({
       tenantId,
       direction: 'inbound',
-      from: phone,
+      from: { $in: variants },
       dateSentUtc: { $gte: start, $lt: end }
     }, {
       projection: { _id: 0, dateSentUtc: 1, body: 1, sid: 1 },
       sort: { dateSentUtc: 1 }
-    }).limit(400);
+    }).limit(400).toArray();
 
-    const items = await cursor.toArray();
+    // 2) Fallback: normalizo en el server side y comparo dígitos con $expr/$regexReplace
+    if (!items.length) {
+      items = await col.find({
+        tenantId,
+        direction: 'inbound',
+        dateSentUtc: { $gte: start, $lt: end },
+        $expr: {
+          $eq: [
+            {
+              $regexReplace: {
+                input: "$from",
+                regex: /[^0-9]/g,
+                replacement: ""
+              }
+            },
+            digits
+          ]
+        }
+      }, {
+        projection: { _id: 0, dateSentUtc: 1, body: 1, sid: 1 },
+        sort: { dateSentUtc: 1 }
+      }).limit(400).toArray();
+    }
+
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    return res.end(JSON.stringify({ ok:true, phone, count: items.length, messages: items }));
+    return res.end(JSON.stringify({ ok:true, phone: phoneRaw, count: items.length, messages: items }));
   }catch(e){
     console.error('responder_error', e && e.stack || e);
     res.statusCode = e.message === 'invalid_token' ? 401 : 500;
