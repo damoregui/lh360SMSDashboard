@@ -11,7 +11,7 @@ module.exports = (req, res) => {
 '<head>\n' +
 '<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>\n' +
 '<title>SMS Dashboard</title>\n' +
-'<link rel="icon" href="data:,">\n' + /* evita 404 favicon */
+'<link rel="icon" href="data:,">\n' +
 '<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>\n' +
 '<style>\n' +
 ':root { --bg:#0f172a; --muted:#94a3b8; --acc:#22c55e; --err:#ef4444; }\n' +
@@ -64,12 +64,13 @@ module.exports = (req, res) => {
 '    <button id="ingestOpen">Ingest specific day</button>\n' +
 '  </div>\n' +
 '\n' +
-'  <!-- Row de totales: 4 tarjetas -->\n' +
-'  <div class="grid" style="grid-template-columns: repeat(4, minmax(0,1fr)); margin-top:12px">\n' +
+'  <!-- Totales: ahora 5 tarjetas en la misma fila -->\n' +
+'  <div class="grid" style="grid-template-columns: repeat(5, minmax(0,1fr)); margin-top:12px">\n' +
 '    <div class="card"><div class="muted">Sum Segments</div><div class="num" id="segments">0</div></div>\n' +
 '    <div class="card"><div class="muted">STOP (inbound)</div><div class="num" id="stopCount">0</div></div>\n' +
 '    <div class="card"><div class="muted">Total Price (abs)</div><div class="num" id="priceAbs">0</div></div>\n' +
 '    <div class="card"><div class="muted">Unique Prospects (outbound)</div><div class="num" id="uniqueProspectsTotal">0</div></div>\n' +
+'    <div class="card"><div class="muted">Total messages</div><div class="num" id="totalMsgs">0</div></div>\n' +
 '  </div>\n' +
 '\n' +
 '  <!-- Charts -->\n' +
@@ -88,7 +89,6 @@ module.exports = (req, res) => {
 '\n' +
 '<script>\n' +
 'window.addEventListener("DOMContentLoaded", () => {\n' +
-'  // Helpers DOM seguros\n' +
 '  const $ = (id) => document.getElementById(id);\n' +
 '  const errorBox = $("e");\n' +
 '  const from = $("from");\n' +
@@ -97,7 +97,6 @@ module.exports = (req, res) => {
 '  function ymd(d){ const yyyy=d.getUTCFullYear(); const mm=String(d.getUTCMonth()+1).padStart(2,"0"); const dd=String(d.getUTCDate()).padStart(2,"0"); return yyyy+"-"+mm+"-"+dd; }\n' +
 '  const token = sessionStorage.getItem("authToken") || new URL(location.href).searchParams.get("t");\n' +
 '  if (token) sessionStorage.setItem("authToken", token);\n' +
-'\n' +
 '  if (from && to){ const y=new Date(Date.now()-86400000); from.value=ymd(y); to.value=ymd(y); }\n' +
 '\n' +
 '  let statusChart, dirChart;\n' +
@@ -122,6 +121,8 @@ module.exports = (req, res) => {
 '      setNum("stopCount", data.stopCount);\n' +
 '      setNum("priceAbs", data.totalPriceAbs);\n' +
 '      setNum("uniqueProspectsTotal", data.uniqueProspectsTotal);\n' +
+'      // NEW: total messages (preferimos data.total; si no, outbound+inbound)\n' +
+'      setNum("totalMsgs", (typeof data.total==="number" ? data.total : (data.outbound||0)+(data.inbound||0)));\n' +
 '\n' +
 '      const sLabels = Object.keys(data.byStatus || {});\n' +
 '      const sData   = sLabels.map(k => data.byStatus[k]);\n' +
@@ -147,11 +148,7 @@ module.exports = (req, res) => {
 '  }\n' +
 '\n' +
 '  function setLoading(v){ document.body.style.pointerEvents = v ? "none" : "auto"; document.body.style.opacity = v ? .7 : 1; }\n' +
-'\n' +
-'  async function refreshToken(){\n' +
-'    const t = sessionStorage.getItem("authToken"); if (!t) return;\n' +
-'    try{ const r = await fetch("/api/refresh", { method:"POST", headers: { "authorization":"Bearer " + t } }); const j = await r.json().catch(()=>({})); if (r.ok && j.ok && j.token) sessionStorage.setItem("authToken", j.token); }catch{}\n' +
-'  }\n' +
+'  async function refreshToken(){ const t = sessionStorage.getItem("authToken"); if (!t) return; try{ const r = await fetch("/api/refresh", { method:"POST", headers: { "authorization":"Bearer " + t } }); const j = await r.json().catch(()=>({})); if (r.ok && j.ok && j.token) sessionStorage.setItem("authToken", j.token); }catch{} }\n' +
 '  setInterval(refreshToken, 10 * 60 * 1000);\n' +
 '\n' +
 '  function renderRepeatResponders(rr, f, tt){\n' +
@@ -202,18 +199,16 @@ module.exports = (req, res) => {
 '    finally{ setLoading(false); closeModal(); }\n' +
 '  }\n' +
 '\n' +
-'  // Enlazar eventos SOLO si existen los elementos\n' +
 '  const btnLoad=$("load"); if (btnLoad) btnLoad.addEventListener("click", loadMetrics);\n' +
 '  const btnOpen=$("ingestOpen"); if (btnOpen) btnOpen.addEventListener("click", openModal);\n' +
 '  const btnRun=$("ingestRun"); if (btnRun) btnRun.addEventListener("click", runIngestSpecificDay);\n' +
 '  const btnCancel=$("ingestCancel"); if (btnCancel) btnCancel.addEventListener("click", closeModal);\n' +
 '\n' +
-'  // Cargar de entrada\n' +
 '  loadMetrics();\n' +
-'});\n' + // DOMContentLoaded
+'});\n' +
 '</script>\n' +
 '\n' +
-'<!-- Modal al final para estar seguro de que existe en DOM antes del JS -->\n' +
+'<!-- Modal -->\n' +
 '<div id="ingestModal" class="modal-backdrop">\n' +
 '  <div class="modal">\n' +
 '    <div class="muted" style="font-size:12px;margin-bottom:6px">Pick a day (UTC)</div>\n' +
