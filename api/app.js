@@ -36,6 +36,15 @@ module.exports = (req, res) => {
 '.modal-backdrop{position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; justify-content:center; align-items:center; z-index:50}\n' +
 '.modal{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:16px; padding:16px; min-width:300px}\n' +
 '.modal .row{align-items:end}\n' +
+'/* Repeat responders table */\n' +
+'table{border-collapse:collapse; width:100%}\n' +
+'thead th{color:var(--muted); text-align:left; padding:6px 8px}\n' +
+'tbody td{padding:6px 8px; border-top:1px solid rgba(255,255,255,.08)}\n' +
+'.expander{cursor:pointer; opacity:.8}\n' +
+'.messages{background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:8px}\n' +
+'.msg{padding:6px 8px; border-bottom:1px dashed rgba(255,255,255,.1)}\n' +
+'.msg:last-child{border-bottom:none}\n' +
+'.ts{color:var(--muted); font-size:12px; margin-right:6px}\n' +
 '</style>\n' +
 '</head>\n' +
 '<body>\n' +
@@ -68,37 +77,28 @@ module.exports = (req, res) => {
 '    </div>\n' +
 '  </div>\n' +
 '\n' +
+'  <!-- Totales -->\n' +
 '  <div class="grid" style="margin-top:12px">\n' +
-'    <div class="card"><div class="muted">Outbound</div><div class="num" id="outbound">0</div></div>\n' +
-'    <div class="card"><div class="muted">Inbound</div><div class="num" id="inbound">0</div></div>\n' +
-'    <div class="card"><div class="muted">Total</div><div class="num" id="total">0</div></div>\n' +
+'    <div class="card"><div class="muted">Sum Segments</div><div class="num" id="segments">0</div></div>\n' +
+'    <div class="card"><div class="muted">STOP (inbound)</div><div class="num" id="stopCount">0</div></div>\n' +
+'    <div class="card"><div class="muted">Total Price (abs)</div><div class="num" id="priceAbs">0</div></div>\n' +
 '  </div>\n' +
 '\n' +
+'  <!-- Charts -->\n' +
 '  <div class="grid" style="grid-template-columns: repeat(2, minmax(0,1fr)); margin-top:12px">\n' +
 '    <div class="card"><div class="chart-wrap"><canvas id="statusChart"></canvas></div></div>\n' +
 '    <div class="card"><div class="chart-wrap"><canvas id="dirChart"></canvas></div></div>\n' +
 '  </div>\n' +
 '\n' +
-'  <div class="grid" style="grid-template-columns: repeat(3, minmax(0,1fr)); margin-top:12px">\n' +
-'    <div class="card"><div class="muted">Sum Segments</div><div class="num" id="segments">0</div></div>\n' +
-'    <div class="card"><div class="muted">Total Price (raw)</div><div class="num" id="priceRaw">0</div></div>\n' +
-'    <div class="card"><div class="muted">Total Price (abs)</div><div class="num" id="priceAbs">0</div></div>\n' +
-'  </div>\n' +
-'\n' +
-'  <!-- NEW: Unique Prospects & STOP -->\n' +
-'  <div class="grid" style="grid-template-columns: repeat(2, minmax(0,1fr)); margin-top:12px">\n' +
+'  <!-- Unique Prospects (solo número) -->\n' +
+'  <div class="grid" style="grid-template-columns: repeat(1, minmax(0,1fr)); margin-top:12px">\n' +
 '    <div class="card">\n' +
 '      <div class="muted">Unique Prospects (outbound)</div>\n' +
 '      <div class="num" id="uniqueProspectsTotal">0</div>\n' +
-'      <div class="muted" id="uniqueProspectsSample" style="font-size:12px; margin-top:6px"></div>\n' +
-'    </div>\n' +
-'    <div class="card">\n' +
-'      <div class="muted">STOP (inbound)</div>\n' +
-'      <div class="num" id="stopCount">0</div>\n' +
 '    </div>\n' +
 '  </div>\n' +
 '\n' +
-'  <!-- NEW: Repeat Responders list -->\n' +
+'  <!-- Repeat Responders con collapse -->\n' +
 '  <div class="card" style="margin-top:12px">\n' +
 '    <div class="muted">Repeat Responders (&gt;1 replies)</div>\n' +
 '    <div id="repeatResponders" style="margin-top:6px"></div>\n' +
@@ -126,6 +126,9 @@ module.exports = (req, res) => {
 '\n' +
 'let statusChart, dirChart;\n' +
 '\n' +
+'function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;" }[c])); }\n' +
+'function fmtTsISO(iso){ try{ const d=new Date(iso); return d.toISOString().replace("T"," ").replace(".000Z","Z"); }catch{ return iso||"" } }\n' +
+'\n' +
 'async function loadMetrics(){\n' +
 '  errorBox.textContent = "";\n' +
 '  const t = sessionStorage.getItem("authToken");\n' +
@@ -139,12 +142,10 @@ module.exports = (req, res) => {
 '    const data = await r.json();\n' +
 '    if (!r.ok){ throw new Error((data && data.error) || "metrics_failed"); }\n' +
 '\n' +
-'    document.getElementById("outbound").textContent = data.outbound || 0;\n' +
-'    document.getElementById("inbound").textContent  = data.inbound  || 0;\n' +
-'    document.getElementById("total").textContent    = data.total    || 0;\n' +
 '    document.getElementById("segments").textContent = data.sumSegments || 0;\n' +
-'    document.getElementById("priceRaw").textContent = data.totalPriceRaw || 0;\n' +
+'    document.getElementById("stopCount").textContent = data.stopCount || 0;\n' +
 '    document.getElementById("priceAbs").textContent = data.totalPriceAbs || 0;\n' +
+'    document.getElementById("uniqueProspectsTotal").textContent = data.uniqueProspectsTotal || 0;\n' +
 '\n' +
 '    const sLabels = Object.keys(data.byStatus || {});\n' +
 '    const sData   = sLabels.map(k => data.byStatus[k]);\n' +
@@ -164,44 +165,7 @@ module.exports = (req, res) => {
 '      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom" } } }\n' +
 '    });\n' +
 '\n' +
-'    // NEW: Unique Prospects & STOP\n' +
-'    document.getElementById("uniqueProspectsTotal").textContent = data.uniqueProspectsTotal || 0;\n' +
-'    const sampleDiv = document.getElementById("uniqueProspectsSample");\n' +
-'    const list = data.uniqueProspects || [];\n' +
-'    const maxShow = 30;\n' +
-'    if (list.length){\n' +
-'      const shown = list.slice(0, maxShow);\n' +
-'      const more  = Math.max(0, (data.uniqueProspectsTotal||0) - shown.length);\n' +
-'      sampleDiv.textContent = shown.join(" · ") + (more ? " · … +" + more + " more" : "");\n' +
-'    } else {\n' +
-'      sampleDiv.textContent = "";\n' +
-'    }\n' +
-'    document.getElementById("stopCount").textContent = data.stopCount || 0;\n' +
-'\n' +
-'    // NEW: Repeat Responders list\n' +
-'    const rrDiv = document.getElementById("repeatResponders");\n' +
-'    rrDiv.innerHTML = "";\n' +
-'    const rr = data.repeatResponders || [];\n' +
-'    if (rr.length){\n' +
-'      const table = document.createElement("table");\n' +
-'      table.style.width = "100%";\n' +
-'      table.style.borderCollapse = "collapse";\n' +
-'      const thead = document.createElement("thead");\n' +
-'      const trh = document.createElement("tr");\n' +
-'      ["Phone","Replies"].forEach(h=>{ const th=document.createElement("th"); th.textContent=h; th.style.textAlign="left"; th.style.padding="6px 8px"; th.style.color="var(--muted)"; trh.appendChild(th); });\n' +
-'      thead.appendChild(trh); table.appendChild(thead);\n' +
-'      const tbody = document.createElement("tbody");\n' +
-'      rr.forEach(r => {\n' +
-'        const tr = document.createElement("tr");\n' +
-'        const td1 = document.createElement("td"); td1.textContent = r.phone || "(unknown)"; td1.style.padding="6px 8px";\n' +
-'        const td2 = document.createElement("td"); td2.textContent = r.count; td2.style.padding="6px 8px";\n' +
-'        tr.appendChild(td1); tr.appendChild(td2); tbody.appendChild(tr);\n' +
-'      });\n' +
-'      table.appendChild(tbody);\n' +
-'      rrDiv.appendChild(table);\n' +
-'    } else {\n' +
-'      const em = document.createElement("div"); em.className="muted"; em.textContent="No repeat responders in range."; rrDiv.appendChild(em);\n' +
-'    }\n' +
+'    renderRepeatResponders(data.repeatResponders || [], f, tt);\n' +
 '\n' +
 '  }catch(e){\n' +
 '    errorBox.textContent = e.message || "Failed to load metrics.";\n' +
@@ -224,6 +188,62 @@ module.exports = (req, res) => {
 '}\n' +
 'setInterval(refreshToken, 10 * 60 * 1000);\n' +
 '\n' +
+'function renderRepeatResponders(rr, f, tt){\n' +
+'  const box = document.getElementById("repeatResponders");\n' +
+'  box.innerHTML = "";\n' +
+'  if (!rr.length){ const em=document.createElement("div"); em.className="muted"; em.textContent="No repeat responders in range."; return void box.appendChild(em); }\n' +
+'\n' +
+'  const table = document.createElement("table");\n' +
+'  const thead = document.createElement("thead");\n' +
+'  const trh = document.createElement("tr");\n' +
+'  ["Phone","Replies"].forEach(h=>{ const th=document.createElement("th"); th.textContent=h; trh.appendChild(th); });\n' +
+'  thead.appendChild(trh); table.appendChild(thead);\n' +
+'  const tbody = document.createElement("tbody");\n' +
+'  table.appendChild(tbody);\n' +
+'\n' +
+'  rr.forEach(row => {\n' +
+'    const tr = document.createElement("tr");\n' +
+'    tr.className = "expander";\n' +
+'    tr.dataset.phone = row.phone;\n' +
+'    const td1 = document.createElement("td"); td1.textContent = row.phone || "(unknown)";\n' +
+'    const td2 = document.createElement("td"); td2.textContent = row.count;\n' +
+'    tr.appendChild(td1); tr.appendChild(td2);\n' +
+'    tbody.appendChild(tr);\n' +
+'\n' +
+'    const trMsg = document.createElement("tr");\n' +
+'    const tdMsg = document.createElement("td"); tdMsg.colSpan = 2; tdMsg.style.padding = "0 8px 8px";\n' +
+'    trMsg.style.display = "none";\n' +
+'    const holder = document.createElement("div"); holder.className="messages"; holder.textContent="";\n' +
+'    tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);\n' +
+'\n' +
+'    let loaded = false; let open = false;\n' +
+'    tr.addEventListener("click", async () => {\n' +
+'      open = !open; trMsg.style.display = open ? "" : "none";\n' +
+'      if (!loaded && open){\n' +
+'        holder.textContent = "Loading...";\n' +
+'        try{\n' +
+'          const t = sessionStorage.getItem("authToken");\n' +
+'          const url = "/api/responder?from=" + encodeURIComponent(row.phone) + "&from=" + encodeURIComponent(f) + "&to=" + encodeURIComponent(tt);\n' +
+'          const r = await fetch(url, { headers: { "authorization":"Bearer " + t } });\n' +
+'          const j = await r.json();\n' +
+'          if (!r.ok || !j.ok){ throw new Error((j && j.error) || "fetch_failed"); }\n' +
+'          holder.innerHTML = "";\n' +
+'          if (!j.messages || !j.messages.length){ holder.textContent = "No inbound messages for this number."; loaded = true; return; }\n' +
+'          j.messages.forEach(m => {\n' +
+'            const div = document.createElement("div"); div.className="msg";\n' +
+'            const ts = document.createElement("span"); ts.className="ts"; ts.textContent = fmtTsISO(m.dateSentUtc);\n' +
+'            const body = document.createElement("span"); body.innerHTML = esc(m.body);\n' +
+'            div.appendChild(ts); div.appendChild(body); holder.appendChild(div);\n' +
+'          });\n' +
+'          loaded = true;\n' +
+'        }catch(e){ holder.textContent = (e && e.message) || "Failed to load messages."; }\n' +
+'      }\n' +
+'    });\n' +
+'  });\n' +
+'\n' +
+'  box.appendChild(table);\n' +
+'}\n' +
+'\n' +
 '// Modal helpers\n' +
 'function setDateLimits(){\n' +
 '  const input = document.getElementById("ingestDate");\n' +
@@ -236,17 +256,10 @@ module.exports = (req, res) => {
 '  input.max = ymdMax;\n' +
 '  input.value = ymdMax;\n' +
 '}\n' +
-'function openModal(){\n' +
-'  setDateLimits();\n' +
-'  document.getElementById("ingestModal").style.display="flex";\n' +
-'}\n' +
-'function closeModal(){\n' +
-'  document.getElementById("ingestModal").style.display="none";\n' +
-'}\n' +
+'function openModal(){ setDateLimits(); document.getElementById("ingestModal").style.display="flex"; }\n' +
+'function closeModal(){ document.getElementById("ingestModal").style.display="none"; }\n' +
 'document.addEventListener("keydown", (e)=>{ if (e.key==="Escape") closeModal(); });\n' +
-'document.getElementById("ingestModal").addEventListener("click", (e)=>{\n' +
-'  if (e.target.id === "ingestModal") closeModal();\n' +
-'});\n' +
+'document.getElementById("ingestModal").addEventListener("click", (e)=>{ if (e.target.id === "ingestModal") closeModal(); });\n' +
 '\n' +
 'async function runIngestSpecificDay(){\n' +
 '  errorBox.textContent = "";\n' +

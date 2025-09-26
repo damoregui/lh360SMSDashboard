@@ -59,15 +59,11 @@ module.exports = async (req, res) => {
     ]).toArray();
     const sumSegments = segAgg?.s || 0;
 
+    // Solo totalPriceAbs (removemos totalPriceRaw)
     const [priceAgg] = await col.aggregate([
       { $match: baseMatch },
-      { $group: {
-        _id: null,
-        raw: { $sum: "$price" },
-        abs: { $sum: { $abs: "$price" } }
-      } }
+      { $group: { _id: null, abs: { $sum: { $abs: "$price" } } } }
     ]).toArray();
-    const totalPriceRaw = priceAgg?.raw || 0;
     const totalPriceAbs = priceAgg?.abs || 0;
 
     // By status
@@ -87,7 +83,7 @@ module.exports = async (req, res) => {
     const byError = {};
     for (const r of byErrorArr) byError[String(r._id)] = r.c;
 
-    // NEW: Repeat responders (>1) — inbound agrupado por "from"
+    // Repeat responders (>1) — inbound agrupado por "from"
     const repeatResponders = await col.aggregate([
       { $match: inboundMatch },
       { $group: { _id: "$from", count: { $sum: 1 } } },
@@ -97,19 +93,16 @@ module.exports = async (req, res) => {
     ]).toArray();
     const repeatList = repeatResponders.map(r => ({ phone: r._id, count: r.count }));
 
-    // NEW: Unique prospects (destinatarios únicos outbound "to")
+    // Unique prospects (destinatarios únicos outbound "to")
     const uniqueProsAgg = await col.aggregate([
       { $match: outboundMatch },
       { $group: { _id: "$to" } },
-      { $sort: { _id: 1 } },
-      { $group: { _id: null, numbers: { $push: "$_id" }, total: { $sum: 1 } } },
-      { $project: { _id: 0, total: 1, numbers: { $slice: ["$numbers", 200] } } } // muestra hasta 200
+      { $group: { _id: null, total: { $sum: 1 } } }
     ]).toArray();
     const uniqueProspectsTotal = uniqueProsAgg?.[0]?.total || 0;
-    const uniqueProspects      = uniqueProsAgg?.[0]?.numbers || [];
 
-    // NEW: STOP count (inbound con palabra "stop")
-    const stopRegex = new RegExp("\\bstop\\b", "i"); // palabra completa, insensible a may/min
+    // STOP count (inbound con palabra "stop")
+    const stopRegex = new RegExp("\\bstop\\b", "i");
     const stopCount = await col.countDocuments({ ...inboundMatch, body: { $regex: stopRegex } });
 
     res.statusCode = 200;
@@ -118,11 +111,10 @@ module.exports = async (req, res) => {
       ok: true,
       from, to,
       total, outbound, inbound,
-      sumSegments, totalPriceRaw, totalPriceAbs,
+      sumSegments, totalPriceAbs,
       byStatus, byError,
       repeatResponders: repeatList,
       uniqueProspectsTotal,
-      uniqueProspects,
       stopCount
     }));
   }catch(e){
