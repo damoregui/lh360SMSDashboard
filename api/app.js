@@ -27,16 +27,13 @@ module.exports = (req, res) => {
 '.muted{color:var(--muted)}\n' +
 '.chart-wrap{height:260px}\n' +
 '.err{color:var(--err); margin-top:8px; min-height:16px}\n' +
-'/* Date inputs: force white calendar icon */\n' +
 '#from, #to, #ingestDate { color-scheme: dark; }\n' +
 '#from::-webkit-calendar-picker-indicator,\n' +
 '#to::-webkit-calendar-picker-indicator,\n' +
 '#ingestDate::-webkit-calendar-picker-indicator { filter: invert(1) brightness(1.6); opacity: 1; }\n' +
-'/* Modal */\n' +
 '.modal-backdrop{position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; justify-content:center; align-items:center; z-index:50}\n' +
 '.modal{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:16px; padding:16px; min-width:300px}\n' +
 '.modal .row{align-items:end}\n' +
-'/* Repeat responders table */\n' +
 'table{border-collapse:collapse; width:100%}\n' +
 'thead th{color:var(--muted); text-align:left; padding:6px 8px}\n' +
 'tbody td{padding:6px 8px; border-top:1px solid rgba(255,255,255,.08)}\n' +
@@ -107,7 +104,8 @@ module.exports = (req, res) => {
 '\n' +
 'let statusChart, dirChart;\n' +
 'function fmtTsISO(iso){ try{ const d=new Date(iso); return d.toISOString().replace("T"," ").replace(".000Z","Z"); }catch{ return iso||"" } }\n' +
-'function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;" }[c])); }\n' +
+'// FIX: escapado simple y seguro (sin objeto con comillas)\n' +
+'function esc(s){ return (s==null?\'\':String(s)).replace(/&/g,\'&amp;\').replace(/</g,\'&lt;\').replace(/>/g,\'&gt;\').replace(/"/g,\'&quot;\'); }\n' +
 '\n' +
 'async function loadMetrics(){\n' +
 '  errorBox.textContent = "";\n' +
@@ -215,7 +213,6 @@ module.exports = (req, res) => {
 '  box.appendChild(table);\n' +
 '}\n' +
 '\n' +
-'// Modal helpers\n' +
 'function setDateLimits(){\n' +
 '  const input = document.getElementById("ingestDate");\n' +
 '  const now = new Date();\n' +
