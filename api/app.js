@@ -44,6 +44,12 @@ module.exports = (req, res) => {
 '.msg{padding:6px 8px; border-bottom:1px dashed rgba(255,255,255,.1)}\n' +
 '.msg:last-child{border-bottom:none}\n' +
 '.ts{color:var(--muted); font-size:12px; margin-right:6px}\n' +
+'/* Conversación con burbujas */\n' +
+'.msgrow{ display:flex; gap:6px; margin:6px 0; }\n' +
+'.msgrow.inbound{ justify-content:flex-end; }\n' +
+'.bubble{ background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12); padding:8px 10px; border-radius:14px; max-width:70%; }\n' +
+'.bubble.out{ border-color: rgba(34,197,94,.5); }\n' +
+'.bubble.in{  border-color: rgba(255,255,255,.28); }\n' +
 '</style>\n' +
 '</head>\n' +
 '<body>\n' +
@@ -191,44 +197,49 @@ module.exports = (req, res) => {
 '      const holder=document.createElement("div"); holder.className="messages"; holder.textContent=""; tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);\n' +
 '      let loaded=false, open=false;\n' +
 '      tr.addEventListener("click", async ()=>{\n' +
-'        open=!open; trMsg.style.display=open?\"\":\"none\";\n' +
+'        open=!open; trMsg.style.display=open?"":"none";\n' +
 '        if (!loaded && open){\n' +
-'          holder.textContent=\"Loading...\";\n' +
+'          holder.textContent="Loading...";\n' +
 '          try{\n' +
-'            const t=sessionStorage.getItem(\"authToken\");\n' +
-'            const url=\"/api/responder?phone=\"+encodeURIComponent(row.phone)+\"&from=\"+encodeURIComponent(f)+\"&to=\"+encodeURIComponent(tt);\n' +
-'            const r=await fetch(url,{ headers:{ \"authorization\":\"Bearer \"+t }}); const j=await r.json(); if(!r.ok||!j.ok) throw new Error((j&&j.error)||\"fetch_failed\");\n' +
-'            holder.innerHTML=\"\"; if(!j.messages||!j.messages.length){ holder.textContent=\"No inbound messages for this number.\"; loaded=true; return; }\n' +
-'            j.messages.forEach(m=>{ const div=document.createElement(\"div\"); div.className=\"msg\"; const ts=document.createElement(\"span\"); ts.className=\"ts\"; ts.textContent=fmtTsISO(m.dateSentUtc); const body=document.createElement(\"span\"); body.innerHTML=esc(m.body); div.appendChild(ts); div.appendChild(body); holder.appendChild(div); });\n' +
+'            const t=sessionStorage.getItem("authToken");\n' +
+'            const url="/api/responder?phone="+encodeURIComponent(row.phone)+"&from="+encodeURIComponent(f)+"&to="+encodeURIComponent(tt);\n' +
+'            const r=await fetch(url,{ headers:{ "authorization":"Bearer "+t }}); const j=await r.json(); if(!r.ok||!j.ok) throw new Error((j&&j.error)||"fetch_failed");\n' +
+'            holder.innerHTML=""; if(!j.messages||!j.messages.length){ holder.textContent="No messages for this number."; loaded=true; return; }\n' +
+'            j.messages.forEach(m=>{\n' +
+'              const rowEl=document.createElement("div"); rowEl.className="msgrow " + (m.direction==="inbound" ? "inbound" : "outbound");\n' +
+'              const ts=document.createElement("span"); ts.className="ts"; ts.textContent=fmtTsISO(m.dateSentUtc);\n' +
+'              const bubble=document.createElement("div"); bubble.className="bubble " + (m.direction==="inbound" ? "in" : "out"); bubble.innerHTML=esc(m.body);\n' +
+'              rowEl.appendChild(ts); rowEl.appendChild(bubble); holder.appendChild(rowEl);\n' +
+'            });\n' +
 '            loaded=true;\n' +
-'          }catch(e){ holder.textContent=(e&&e.message)||\"Failed to load messages.\"; }\n' +
+'          }catch(e){ holder.textContent=(e&&e.message)||"Failed to load messages."; }\n' +
 '        }\n' +
 '      });\n' +
 '    });\n' +
 '    box.appendChild(table);\n' +
 '  }\n' +
 '\n' +
-'  function setDateLimits(){ const input=$(\"ingestDate\"); if(!input) return; const now=new Date(); const y=new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()-1); const yyyy=y.getUTCFullYear(); const mm=String(y.getUTCMonth()+1).padStart(2,\"0\"); const dd=String(y.getUTCDate()).padStart(2,\"0\"); const ymdMax=yyyy+\"-\"+mm+\"-\"+dd; input.max=ymdMax; input.value=ymdMax; }\n' +
-'  function openModal(){ setDateLimits(); const m=$(\"ingestModal\"); if(m) m.style.display=\"flex\"; }\n' +
-'  function closeModal(){ const m=$(\"ingestModal\"); if(m) m.style.display=\"none\"; }\n' +
-'  document.addEventListener(\"keydown\", (e)=>{ if (e.key===\"Escape\") closeModal(); });\n' +
-'  const modalEl = $(\"ingestModal\"); if (modalEl) modalEl.addEventListener(\"click\", (e)=>{ if (e.target.id===\"ingestModal\") closeModal(); });\n' +
+'  function setDateLimits(){ const input=$("ingestDate"); if(!input) return; const now=new Date(); const y=new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()-1); const yyyy=y.getUTCFullYear(); const mm=String(y.getUTCMonth()+1).padStart(2,"0"); const dd=String(y.getUTCDate()).padStart(2,"0"); const ymdMax=yyyy+"-"+mm+"-"+dd; input.max=ymdMax; input.value=ymdMax; }\n' +
+'  function openModal(){ setDateLimits(); const m=$("ingestModal"); if(m) m.style.display="flex"; }\n' +
+'  function closeModal(){ const m=$("ingestModal"); if(m) m.style.display="none"; }\n' +
+'  document.addEventListener("keydown", (e)=>{ if (e.key==="Escape") closeModal(); });\n' +
+'  const modalEl = $("ingestModal"); if (modalEl) modalEl.addEventListener("click", (e)=>{ if (e.target.id==="ingestModal") closeModal(); });\n' +
 '\n' +
 '  async function runIngestSpecificDay(){\n' +
 '    if (!errorBox) return;\n' +
-'    errorBox.textContent=\"\"; const t=sessionStorage.getItem(\"authToken\"); if(!t){ errorBox.textContent=\"No token. Go back to / and login.\"; return; }\n' +
-'    const input=$(\"ingestDate\"); if(!input||!input.value){ errorBox.textContent=\"Please pick a valid date (YYYY-MM-DD).\"; return; }\n' +
-'    const d=input.value; const picked=new Date(d+\"T00:00:00Z\"); const today=new Date(); today.setUTCHours(0,0,0,0); if(picked>=today){ errorBox.textContent=\"Only yesterday or earlier is allowed.\"; return; }\n' +
+'    errorBox.textContent=""; const t=sessionStorage.getItem("authToken"); if(!t){ errorBox.textContent="No token. Go back to / and login."; return; }\n' +
+'    const input=$("ingestDate"); if(!input||!input.value){ errorBox.textContent="Please pick a valid date (YYYY-MM-DD)."; return; }\n' +
+'    const d=input.value; const picked=new Date(d+"T00:00:00Z"); const today=new Date(); today.setUTCHours(0,0,0,0); if(picked>=today){ errorBox.textContent="Only yesterday or earlier is allowed."; return; }\n' +
 '    setLoading(true);\n' +
-'    try{ const r=await fetch(\"/api/ingest?day=\"+d,{ method:\"POST\", headers:{ \"authorization\":\"Bearer \"+t }}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error((j&&j.error)||\"ingest_failed\"); await loadMetrics(); }\n' +
-'    catch(e){ errorBox.textContent=e.message||\"Ingest failed.\"; }\n' +
+'    try{ const r=await fetch("/api/ingest?day="+d,{ method:"POST", headers:{ "authorization":"Bearer "+t }}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error((j&&j.error)||"ingest_failed"); await loadMetrics(); }\n' +
+'    catch(e){ errorBox.textContent=e.message||"Ingest failed."; }\n' +
 '    finally{ setLoading(false); closeModal(); }\n' +
 '  }\n' +
 '\n' +
-'  const btnLoad=$(\"load\"); if (btnLoad) btnLoad.addEventListener(\"click\", loadMetrics);\n' +
-'  const btnOpen=$(\"ingestOpen\"); if (btnOpen) btnOpen.addEventListener(\"click\", openModal);\n' +
-'  const btnRun=$(\"ingestRun\"); if (btnRun) btnRun.addEventListener(\"click\", runIngestSpecificDay);\n' +
-'  const btnCancel=$(\"ingestCancel\"); if (btnCancel) btnCancel.addEventListener(\"click\", closeModal);\n' +
+'  const btnLoad=$("load"); if (btnLoad) btnLoad.addEventListener("click", loadMetrics);\n' +
+'  const btnOpen=$("ingestOpen"); if (btnOpen) btnOpen.addEventListener("click", openModal);\n' +
+'  const btnRun=$("ingestRun"); if (btnRun) btnRun.addEventListener("click", runIngestSpecificDay);\n' +
+'  const btnCancel=$("ingestCancel"); if (btnCancel) btnCancel.addEventListener("click", closeModal);\n' +
 '\n' +
 '  loadMetrics();\n' +
 '});\n' +

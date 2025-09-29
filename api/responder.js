@@ -3,12 +3,12 @@ try { require('../lib/loadEnv'); } catch {}
 const { getDb } = require('../lib/db');
 const { verifyToken } = require('../lib/auth');
 
-// Ocultamos cualquier inbound que contenga "stop" en el body/Body
+// Filtramos inbound con "stop" en body/Body (no distingue mayúsculas)
 const STOP_REGEX = 'stop';
 
 function rangeUtc(from, to){
   const start = new Date(from + 'T00:00:00.000Z');
-  const end   = new Date(new Date(to + 'T00:00:00.000Z').getTime() + 24*60*60*1000);
+  const end   = new Date(new Date(to + 'T00:00:00.000Z').getTime() + 24*60*60*1000); // exclusivo
   return { start, end };
 }
 function getStr(q, key){
@@ -24,7 +24,7 @@ module.exports = async (req, res) => {
       res.statusCode = 405;
       return res.end(JSON.stringify({ ok:false, error:'Method Not Allowed' }));
     }
-    const claims = verifyToken(req.headers['authorization']);
+    const claims   = verifyToken(req.headers['authorization']);
     const tenantId = claims.tenantId;
 
     const phoneRaw = getStr(req.query, 'phone');
@@ -41,42 +41,43 @@ module.exports = async (req, res) => {
     const db  = await getDb();
     const col = db.collection('messages');
 
+    // Variantes del número para maches exactos
     const digits = phoneRaw.replace(/\D/g, '');
     const e164   = '+' + digits;
     const noPlus = digits;
     const variants = Array.from(new Set([phoneRaw, e164, noPlus]));
 
-    // Expresiones para $expr
+    // Expresiones para usar en $expr (normalización campo/camel-case)
     const BODY_EXPR = { $ifNull: ['$body', { $ifNull: ['$Body', ''] }] };
     const FROM_EXPR = { $ifNull: ['$from', { $ifNull: ['$From', ''] }] };
+    const TO_EXPR   = { $ifNull: ['$to',   { $ifNull: ['$To',   ''] }] };
 
-    // Filtro común: inbound no-STOP en rango
-    const baseFilter = {
-      tenantId,
+    // Filtro común por rango/tenant
+    const common = { tenantId, dateSentUtc: { $gte: start, $lt: end } };
+
+    // --- INBOUND (excluyendo STOP) ---
+    const inboundFilterBase = {
+      ...common,
       direction: 'inbound',
-      dateSentUtc: { $gte: start, $lt: end },
       $expr: { $not: { $regexMatch: { input: BODY_EXPR, regex: STOP_REGEX, options: 'i' } } }
     };
 
-    // 1) Intento rápido: igualdad por from/From contra cualquiera de las variantes
-    let items = await col.find({
-      ...baseFilter,
-      $or: [
-        { from: { $in: variants } },
-        { From: { $in: variants } }
-      ]
+    // 1) inbound: por igualdad contra variantes en from/From
+    let inbound = await col.find({
+      ...inboundFilterBase,
+      $or: [ { from: { $in: variants } }, { From: { $in: variants } } ]
     }, {
-      projection: { _id: 0, dateSentUtc: 1, body: 1, Body: 1, sid: 1 },
+      projection: { _id: 0, dateSentUtc: 1, body: 1, Body: 1, sid: 1, direction: 1 },
       sort: { dateSentUtc: 1 }
-    }).limit(400).toArray();
+    }).limit(500).toArray();
 
-    // 2) Fallback: comparo por dígitos normalizados en from/From
-    if (!items.length) {
-      items = await col.find({
-        ...baseFilter,
+    // 2) inbound: fallback normalizando dígitos en from/From
+    if (!inbound.length){
+      inbound = await col.find({
+        ...inboundFilterBase,
         $expr: {
           $and: [
-            baseFilter.$expr, // mantiene el no-STOP
+            inboundFilterBase.$expr, // mantiene el "no STOP"
             {
               $eq: [
                 { $regexReplace: { input: FROM_EXPR, regex: /[^0-9]/g, replacement: "" } },
@@ -86,17 +87,55 @@ module.exports = async (req, res) => {
           ]
         }
       }, {
-        projection: { _id: 0, dateSentUtc: 1, body: 1, Body: 1, sid: 1 },
+        projection: { _id: 0, dateSentUtc: 1, body: 1, Body: 1, sid: 1, direction: 1 },
         sort: { dateSentUtc: 1 }
-      }).limit(400).toArray();
+      }).limit(500).toArray();
     }
 
-    // Normalizo body: si Body existe y body no, uso Body
-    items = items.map(m => ({ ...m, body: (m.body ?? m.Body ?? '') }));
+    // --- OUTBOUND (sin filtrar STOP) ---
+    // 1) outbound: por igualdad contra variantes en to/To
+    let outbound = await col.find({
+      ...common,
+      direction: 'outbound-api',
+      $or: [ { to: { $in: variants } }, { To: { $in: variants } } ]
+    }, {
+      projection: { _id: 0, dateSentUtc: 1, body: 1, Body: 1, sid: 1, direction: 1 },
+      sort: { dateSentUtc: 1 }
+    }).limit(500).toArray();
+
+    // 2) outbound: fallback normalizando dígitos en to/To
+    if (!outbound.length){
+      outbound = await col.find({
+        ...common,
+        direction: 'outbound-api',
+        $expr: {
+          $eq: [
+            { $regexReplace: { input: TO_EXPR, regex: /[^0-9]/g, replacement: "" } },
+            digits
+          ]
+        }
+      }, {
+        projection: { _id: 0, dateSentUtc: 1, body: 1, Body: 1, sid: 1, direction: 1 },
+        sort: { dateSentUtc: 1 }
+      }).limit(500).toArray();
+    }
+
+    // Normalizo body y direction
+    function norm(m){
+      return {
+        dateSentUtc: m.dateSentUtc,
+        body: (m.body ?? m.Body ?? ''),
+        sid: m.sid,
+        direction: (m.direction || '').toLowerCase() === 'inbound' ? 'inbound' : 'outbound' // todo lo demás = outbound
+      };
+    }
+    const all = inbound.map(norm).concat(outbound.map(norm))
+      .sort((a,b)=> new Date(a.dateSentUtc) - new Date(b.dateSentUtc))
+      .slice(0, 1000); // seguridad
 
     res.statusCode = 200;
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    return res.end(JSON.stringify({ ok:true, phone: phoneRaw, count: items.length, messages: items }));
+    res.setHeader('Content-Type','application/json; charset=utf-8');
+    return res.end(JSON.stringify({ ok:true, phone: phoneRaw, count: all.length, messages: all }));
   }catch(e){
     console.error('responder_error', e && e.stack || e);
     res.statusCode = e.message === 'invalid_token' ? 401 : 500;
