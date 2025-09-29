@@ -3,123 +3,126 @@ try { require('../lib/loadEnv'); } catch {}
 const { getDb } = require('../lib/db');
 const { verifyToken } = require('../lib/auth');
 
-function ymdUTC(d){
-  const yyyy = d.getUTCFullYear();
-  const mm   = String(d.getUTCMonth()+1).padStart(2, '0');
-  const dd   = String(d.getUTCDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+const STOP_REGEX = '\\\\bstop\\\\b'; // usado dentro de $regex; case-insensitive
+
+function parseDay(s){
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T00:00:00.000Z') : null;
 }
 function rangeUtc(from, to){
-  // [start, end) fin exclusivo
-  const start = new Date(from + 'T00:00:00.000Z');
-  const end   = new Date(new Date(to + 'T00:00:00.000Z').getTime() + 24*60*60*1000);
+  const start = parseDay(from), end0 = parseDay(to);
+  if (!start || !end0) return null;
+  const end = new Date(end0.getTime() + 24*60*60*1000); // exclusivo
   return { start, end };
 }
-function parseDates(q){
-  let { from, to } = q || {};
-  from = (from || '').trim();
-  to   = (to   || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)){
-    const y = new Date(Date.now() - 86400000);
-    const d = ymdUTC(y);
-    from = d; to = d;
-  }
-  return { from, to, ...rangeUtc(from, to) };
-}
+const getQ = (q, k) => Array.isArray(q?.[k]) ? q[k][0] : (q?.[k] || '').trim();
 
 module.exports = async (req, res) => {
   try{
     if (req.method !== 'GET'){
-      res.setHeader('Allow', 'GET');
+      res.setHeader('Allow','GET');
       res.statusCode = 405;
-      return res.end(JSON.stringify({ ok:false, error:'Method Not Allowed' }));
+      return res.end(JSON.stringify({ ok:false, error:'method_not_allowed' }));
     }
 
     const claims = verifyToken(req.headers['authorization']);
     const tenantId = claims.tenantId;
-    const { from, to, start, end } = parseDates(req.query || {});
+
+    const from = getQ(req.query, 'from');
+    const to   = getQ(req.query, 'to');
+    const rng  = rangeUtc(from, to);
+    if (!rng){
+      res.statusCode = 400;
+      return res.end(JSON.stringify({ ok:false, error:'bad_date' }));
+    }
+
     const db = await getDb();
     const col = db.collection('messages');
 
-    const baseMatch     = { tenantId, dateSentUtc: { $gte: start, $lt: end } };
-    const outboundMatch = { ...baseMatch, direction: { $ne: 'inbound' } };
-    const inboundMatch  = { ...baseMatch, direction: 'inbound' };
+    const baseMatch = {
+      tenantId,
+      dateSentUtc: { $gte: rng.start, $lt: rng.end }
+    };
 
-    // Conteos básicos
-    const [total, outbound, inbound] = await Promise.all([
-      col.countDocuments(baseMatch),
-      col.countDocuments(outboundMatch),
-      col.countDocuments(inboundMatch),
-    ]);
-
-    // Sumas
-    const [segAgg] = await col.aggregate([
+    const facets = await col.aggregate([
       { $match: baseMatch },
-      { $group: { _id: null, s: { $sum: "$numSegments" } } }
+      { $facet: {
+        dirCounts: [
+          { $group: { _id: '$direction', c: { $sum: 1 } } }
+        ],
+        byStatus: [
+          { $group: { _id: '$status', c: { $sum: 1 } } }
+        ],
+        byError: [
+          { $match: {
+              $or: [
+                { errorCode:  { $exists:true, $ne:null } },
+                { error_code: { $exists:true, $ne:null } }
+              ]
+            }
+          },
+          { $project: { code: { $ifNull: ['$errorCode', '$error_code'] } } },
+          { $group: { _id: '$code', c: { $sum: 1 } } }
+        ],
+        sums: [
+          { $group: {
+            _id: null,
+            sumSegments: { $sum: { $ifNull: ['$numSegments', { $ifNull: ['$num_segments', 0] }] } },
+            totalPriceRaw: { $sum: { $toDouble: { $ifNull: ['$price', 0] } } },
+            totalPriceAbs: { $sum: { $abs: { $toDouble: { $ifNull: ['$price', 0] } } } }
+          } }
+        ],
+        uniqOut: [
+          { $match: { direction: 'outbound-api' } },
+          { $group: { _id: null, nums: { $addToSet: '$to' } } },
+          { $project: { _id: 0, count: { $size: '$nums' } } }
+        ],
+        stopCount: [
+          { $match: { direction: 'inbound', body: { $regex: STOP_REGEX, $options: 'i' } } },
+          { $group: { _id: null, c: { $sum: 1 } } }
+        ],
+        repeatResponders: [
+          // inbound que NO sean STOP
+          { $match: { direction: 'inbound', body: { $not: { $regex: STOP_REGEX, $options: 'i' } } } },
+          { $group: { _id: '$from', count: { $sum: 1 } } },
+          // >=1 ya está implícito, no filtramos
+          { $sort: { count: -1 } },
+          { $limit: 500 }
+        ]
+      } }
     ]).toArray();
-    const sumSegments = segAgg?.s || 0;
 
-    // Solo totalPriceAbs (removemos totalPriceRaw)
-    const [priceAgg] = await col.aggregate([
-      { $match: baseMatch },
-      { $group: { _id: null, abs: { $sum: { $abs: "$price" } } } }
-    ]).toArray();
-    const totalPriceAbs = priceAgg?.abs || 0;
+    const f = facets[0] || {};
+    const outbound = (f.dirCounts || []).find(x => x._id === 'outbound-api')?.c || 0;
+    const inbound  = (f.dirCounts || []).find(x => x._id === 'inbound')?.c || 0;
+    const total    = outbound + inbound;
 
-    // By status
-    const byStatusArr = await col.aggregate([
-      { $match: baseMatch },
-      { $group: { _id: "$status", c: { $sum: 1 } } }
-    ]).toArray();
     const byStatus = {};
-    for (const r of byStatusArr) byStatus[r._id || 'unknown'] = r.c;
+    (f.byStatus || []).forEach(s => { if (s._id) byStatus[s._id] = s.c; });
 
-    // By error (códigos != null)
-    const byErrorArr = await col.aggregate([
-      { $match: { ...baseMatch, errorCode: { $ne: null } } },
-      { $group: { _id: "$errorCode", c: { $sum: 1 } } },
-      { $sort: { c: -1 } }
-    ]).toArray();
     const byError = {};
-    for (const r of byErrorArr) byError[String(r._id)] = r.c;
+    (f.byError || []).forEach(e => { if (e._id != null) byError[String(e._id)] = e.c; });
 
-    // Repeat responders (>1) — inbound agrupado por "from"
-    const repeatResponders = await col.aggregate([
-      { $match: inboundMatch },
-      { $group: { _id: "$from", count: { $sum: 1 } } },
-      { $match: { count: { $gt: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 200 }
-    ]).toArray();
-    const repeatList = repeatResponders.map(r => ({ phone: r._id, count: r.count }));
+    const sums = (f.sums && f.sums[0]) || {};
+    const uniqueProspectsTotal = (f.uniqOut && f.uniqOut[0]?.count) || 0;
+    const stopCount = (f.stopCount && f.stopCount[0]?.c) || 0;
 
-    // Unique prospects (destinatarios únicos outbound "to")
-    const uniqueProsAgg = await col.aggregate([
-      { $match: outboundMatch },
-      { $group: { _id: "$to" } },
-      { $group: { _id: null, total: { $sum: 1 } } }
-    ]).toArray();
-    const uniqueProspectsTotal = uniqueProsAgg?.[0]?.total || 0;
-
-    // STOP count (inbound con palabra "stop")
-    const stopRegex = new RegExp("\\bstop\\b", "i");
-    const stopCount = await col.countDocuments({ ...inboundMatch, body: { $regex: stopRegex } });
+    const repeatResponders = (f.repeatResponders || []).map(r => ({ phone: r._id, count: r.count }));
 
     res.statusCode = 200;
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    return res.end(JSON.stringify({
-      ok: true,
-      from, to,
-      total, outbound, inbound,
-      sumSegments, totalPriceAbs,
+    res.setHeader('Content-Type','application/json; charset=utf-8');
+    res.end(JSON.stringify({
+      ok:true,
+      outbound, inbound, total,
       byStatus, byError,
-      repeatResponders: repeatList,
-      uniqueProspectsTotal,
-      stopCount
+      sumSegments: sums.sumSegments || 0,
+      totalPriceRaw: sums.totalPriceRaw || 0,
+      totalPriceAbs: sums.totalPriceAbs || 0,
+      uniqueProspectsTotal, stopCount,
+      repeatResponders
     }));
   }catch(e){
     console.error('metrics_error', e && e.stack || e);
     res.statusCode = e.message === 'invalid_token' ? 401 : 500;
-    return res.end(JSON.stringify({ ok:false, error: e.message || 'server_error' }));
+    res.end(JSON.stringify({ ok:false, error: e.message || 'server_error' }));
   }
 };

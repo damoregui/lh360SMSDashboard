@@ -64,7 +64,7 @@ module.exports = (req, res) => {
 '    <button id="ingestOpen">Ingest specific day</button>\n' +
 '  </div>\n' +
 '\n' +
-'  <!-- Totales: 5 tarjetas -->\n' +
+'  <!-- Totales -->\n' +
 '  <div class="grid" style="grid-template-columns: repeat(5, minmax(0,1fr)); margin-top:12px">\n' +
 '    <div class="card"><div class="muted">Sum Segments</div><div class="num" id="segments">0</div></div>\n' +
 '    <div class="card"><div class="muted">STOP (inbound)</div><div class="num" id="stopCount">0</div></div>\n' +
@@ -79,15 +79,15 @@ module.exports = (req, res) => {
 '    <div class="card"><div class="chart-wrap"><canvas id="dirChart"></canvas></div></div>\n' +
 '  </div>\n' +
 '\n' +
-'  <!-- Errors by code -->\n' +
+'  <!-- Errors as cards -->\n' +
 '  <div class="card" id="errorsCard" style="margin-top:12px; display:none;">\n' +
-'    <div class="muted">Errors (by code)</div>\n' +
-'    <div id="errorsList" style="margin-top:6px"></div>\n' +
+'    <div class="muted" style="margin-bottom:8px">Errors (by code)</div>\n' +
+'    <div id="errorsGrid" class="grid" style="grid-template-columns: repeat(auto-fill,minmax(220px,1fr));"></div>\n' +
 '  </div>\n' +
 '\n' +
 '  <!-- Repeat Responders -->\n' +
 '  <div class="card" style="margin-top:12px">\n' +
-'    <div class="muted">Repeat Responders (&gt;1 replies)</div>\n' +
+'    <div class="muted">Repeat Responders (≥1 replies, excl. STOP)</div>\n' +
 '    <div id="repeatResponders" style="margin-top:6px"></div>\n' +
 '    <div id="e" class="err"></div>\n' +
 '  </div>\n' +
@@ -149,30 +149,28 @@ module.exports = (req, res) => {
 '        });\n' +
 '      }\n' +
 '\n' +
-'      // ERRORS (detallados) -> card visible solo si hay items\n' +
+'      // ERRORS (cards). Si no hay, ocultamos la card\n' +
 '      try{\n' +
 '        const er = await fetch("/api/errors?from=" + f + "&to=" + tt, { headers: { "authorization":"Bearer " + t } });\n' +
 '        const ej = await er.json();\n' +
-'        if (er.ok && ej.ok){ renderErrors(ej.items||[]); }\n' +
-'        else { renderErrors([]); }\n' +
-'      }catch{ renderErrors([]); }\n' +
+'        if (er.ok && ej.ok){ renderErrorsCards(ej.items||[]); } else { renderErrorsCards([]); }\n' +
+'      }catch{ renderErrorsCards([]); }\n' +
 '\n' +
 '      renderRepeatResponders(data.repeatResponders || [], f, tt);\n' +
 '    }catch(e){ errorBox.textContent = e.message || "Failed to load metrics."; }\n' +
 '  }\n' +
 '\n' +
-'  function renderErrors(items){\n' +
-'    const card = $("errorsCard"); const box = $("errorsList"); if (!card || !box) return;\n' +
-'    box.innerHTML = "";\n' +
+'  function renderErrorsCards(items){\n' +
+'    const card = $("errorsCard"); const grid = $("errorsGrid"); if (!card || !grid) return;\n' +
+'    grid.innerHTML = "";\n' +
 '    if (!items.length){ card.style.display = "none"; return; }\n' +
 '    card.style.display = "";\n' +
-'    const ul = document.createElement("ul"); ul.style.margin="8px 0 0"; ul.style.paddingLeft="16px";\n' +
 '    items.sort((a,b)=> (b.count||0)-(a.count||0)).forEach(it => {\n' +
-'      const li = document.createElement("li");\n' +
-'      li.textContent = (it.count||0) + " — Code " + (it.code||"?") + " — " + (it.description||"See Twilio docs");\n' +
-'      ul.appendChild(li);\n' +
+'      const c = document.createElement("div"); c.className = "card";\n' +
+'      const num = document.createElement("div"); num.className = "num"; num.textContent = it.count || 0;\n' +
+'      const cap = document.createElement("div"); cap.className = "muted"; cap.textContent = "Code " + (it.code||"?") + " — " + (it.description||"See Twilio docs");\n' +
+'      c.appendChild(num); c.appendChild(cap); grid.appendChild(c);\n' +
 '    });\n' +
-'    box.appendChild(ul);\n' +
 '  }\n' +
 '\n' +
 '  function setLoading(v){ document.body.style.pointerEvents = v ? "none" : "auto"; document.body.style.opacity = v ? .7 : 1; }\n' +
@@ -181,7 +179,7 @@ module.exports = (req, res) => {
 '\n' +
 '  function renderRepeatResponders(rr, f, tt){\n' +
 '    const box = $("repeatResponders"); if (!box) return; box.innerHTML = "";\n' +
-'    if (!rr.length){ const em=document.createElement("div"); em.className="muted"; em.textContent="No repeat responders in range."; box.appendChild(em); return; }\n' +
+'    if (!rr.length){ const em=document.createElement("div"); em.className="muted"; em.textContent="No responders in range."; box.appendChild(em); return; }\n' +
 '    const table=document.createElement("table"); const thead=document.createElement("thead"); const trh=document.createElement("tr");\n' +
 '    ["Phone","Replies"].forEach(h=>{ const th=document.createElement("th"); th.textContent=h; trh.appendChild(th); }); thead.appendChild(trh); table.appendChild(thead);\n' +
 '    const tbody=document.createElement("tbody"); table.appendChild(tbody);\n' +
@@ -193,44 +191,44 @@ module.exports = (req, res) => {
 '      const holder=document.createElement("div"); holder.className="messages"; holder.textContent=""; tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);\n' +
 '      let loaded=false, open=false;\n' +
 '      tr.addEventListener("click", async ()=>{\n' +
-'        open=!open; trMsg.style.display=open?"":"none";\n' +
+'        open=!open; trMsg.style.display=open?\"\":\"none\";\n' +
 '        if (!loaded && open){\n' +
-'          holder.textContent="Loading...";\n' +
+'          holder.textContent=\"Loading...\";\n' +
 '          try{\n' +
-'            const t=sessionStorage.getItem("authToken");\n' +
-'            const url="/api/responder?phone="+encodeURIComponent(row.phone)+"&from="+encodeURIComponent(f)+"&to="+encodeURIComponent(tt);\n' +
-'            const r=await fetch(url,{ headers:{ "authorization":"Bearer "+t }}); const j=await r.json(); if(!r.ok||!j.ok) throw new Error((j&&j.error)||"fetch_failed");\n' +
-'            holder.innerHTML=""; if(!j.messages||!j.messages.length){ holder.textContent="No inbound messages for this number."; loaded=true; return; }\n' +
-'            j.messages.forEach(m=>{ const div=document.createElement("div"); div.className="msg"; const ts=document.createElement("span"); ts.className="ts"; ts.textContent=fmtTsISO(m.dateSentUtc); const body=document.createElement("span"); body.innerHTML=esc(m.body); div.appendChild(ts); div.appendChild(body); holder.appendChild(div); });\n' +
+'            const t=sessionStorage.getItem(\"authToken\");\n' +
+'            const url=\"/api/responder?phone=\"+encodeURIComponent(row.phone)+\"&from=\"+encodeURIComponent(f)+\"&to=\"+encodeURIComponent(tt);\n' +
+'            const r=await fetch(url,{ headers:{ \"authorization\":\"Bearer \"+t }}); const j=await r.json(); if(!r.ok||!j.ok) throw new Error((j&&j.error)||\"fetch_failed\");\n' +
+'            holder.innerHTML=\"\"; if(!j.messages||!j.messages.length){ holder.textContent=\"No inbound messages for this number.\"; loaded=true; return; }\n' +
+'            j.messages.forEach(m=>{ const div=document.createElement(\"div\"); div.className=\"msg\"; const ts=document.createElement(\"span\"); ts.className=\"ts\"; ts.textContent=fmtTsISO(m.dateSentUtc); const body=document.createElement(\"span\"); body.innerHTML=esc(m.body); div.appendChild(ts); div.appendChild(body); holder.appendChild(div); });\n' +
 '            loaded=true;\n' +
-'          }catch(e){ holder.textContent=(e&&e.message)||"Failed to load messages."; }\n' +
+'          }catch(e){ holder.textContent=(e&&e.message)||\"Failed to load messages.\"; }\n' +
 '        }\n' +
 '      });\n' +
 '    });\n' +
 '    box.appendChild(table);\n' +
 '  }\n' +
 '\n' +
-'  function setDateLimits(){ const input=$("ingestDate"); if(!input) return; const now=new Date(); const y=new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()-1); const yyyy=y.getUTCFullYear(); const mm=String(y.getUTCMonth()+1).padStart(2,"0"); const dd=String(y.getUTCDate()).padStart(2,"0"); const ymdMax=yyyy+"-"+mm+"-"+dd; input.max=ymdMax; input.value=ymdMax; }\n' +
-'  function openModal(){ setDateLimits(); const m=$("ingestModal"); if(m) m.style.display="flex"; }\n' +
-'  function closeModal(){ const m=$("ingestModal"); if(m) m.style.display="none"; }\n' +
-'  document.addEventListener("keydown", (e)=>{ if (e.key==="Escape") closeModal(); });\n' +
-'  const modalEl = $("ingestModal"); if (modalEl) modalEl.addEventListener("click", (e)=>{ if (e.target.id==="ingestModal") closeModal(); });\n' +
+'  function setDateLimits(){ const input=$(\"ingestDate\"); if(!input) return; const now=new Date(); const y=new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()-1); const yyyy=y.getUTCFullYear(); const mm=String(y.getUTCMonth()+1).padStart(2,\"0\"); const dd=String(y.getUTCDate()).padStart(2,\"0\"); const ymdMax=yyyy+\"-\"+mm+\"-\"+dd; input.max=ymdMax; input.value=ymdMax; }\n' +
+'  function openModal(){ setDateLimits(); const m=$(\"ingestModal\"); if(m) m.style.display=\"flex\"; }\n' +
+'  function closeModal(){ const m=$(\"ingestModal\"); if(m) m.style.display=\"none\"; }\n' +
+'  document.addEventListener(\"keydown\", (e)=>{ if (e.key===\"Escape\") closeModal(); });\n' +
+'  const modalEl = $(\"ingestModal\"); if (modalEl) modalEl.addEventListener(\"click\", (e)=>{ if (e.target.id===\"ingestModal\") closeModal(); });\n' +
 '\n' +
 '  async function runIngestSpecificDay(){\n' +
 '    if (!errorBox) return;\n' +
-'    errorBox.textContent=""; const t=sessionStorage.getItem("authToken"); if(!t){ errorBox.textContent="No token. Go back to / and login."; return; }\n' +
-'    const input=$("ingestDate"); if(!input||!input.value){ errorBox.textContent="Please pick a valid date (YYYY-MM-DD)."; return; }\n' +
-'    const d=input.value; const picked=new Date(d+"T00:00:00Z"); const today=new Date(); today.setUTCHours(0,0,0,0); if(picked>=today){ errorBox.textContent="Only yesterday or earlier is allowed."; return; }\n' +
+'    errorBox.textContent=\"\"; const t=sessionStorage.getItem(\"authToken\"); if(!t){ errorBox.textContent=\"No token. Go back to / and login.\"; return; }\n' +
+'    const input=$(\"ingestDate\"); if(!input||!input.value){ errorBox.textContent=\"Please pick a valid date (YYYY-MM-DD).\"; return; }\n' +
+'    const d=input.value; const picked=new Date(d+\"T00:00:00Z\"); const today=new Date(); today.setUTCHours(0,0,0,0); if(picked>=today){ errorBox.textContent=\"Only yesterday or earlier is allowed.\"; return; }\n' +
 '    setLoading(true);\n' +
-'    try{ const r=await fetch("/api/ingest?day="+d,{ method:"POST", headers:{ "authorization":"Bearer "+t }}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error((j&&j.error)||"ingest_failed"); await loadMetrics(); }\n' +
-'    catch(e){ errorBox.textContent=e.message||"Ingest failed."; }\n' +
+'    try{ const r=await fetch(\"/api/ingest?day=\"+d,{ method:\"POST\", headers:{ \"authorization\":\"Bearer \"+t }}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error((j&&j.error)||\"ingest_failed\"); await loadMetrics(); }\n' +
+'    catch(e){ errorBox.textContent=e.message||\"Ingest failed.\"; }\n' +
 '    finally{ setLoading(false); closeModal(); }\n' +
 '  }\n' +
 '\n' +
-'  const btnLoad=$("load"); if (btnLoad) btnLoad.addEventListener("click", loadMetrics);\n' +
-'  const btnOpen=$("ingestOpen"); if (btnOpen) btnOpen.addEventListener("click", openModal);\n' +
-'  const btnRun=$("ingestRun"); if (btnRun) btnRun.addEventListener("click", runIngestSpecificDay);\n' +
-'  const btnCancel=$("ingestCancel"); if (btnCancel) btnCancel.addEventListener("click", closeModal);\n' +
+'  const btnLoad=$(\"load\"); if (btnLoad) btnLoad.addEventListener(\"click\", loadMetrics);\n' +
+'  const btnOpen=$(\"ingestOpen\"); if (btnOpen) btnOpen.addEventListener(\"click\", openModal);\n' +
+'  const btnRun=$(\"ingestRun\"); if (btnRun) btnRun.addEventListener(\"click\", runIngestSpecificDay);\n' +
+'  const btnCancel=$(\"ingestCancel\"); if (btnCancel) btnCancel.addEventListener(\"click\", closeModal);\n' +
 '\n' +
 '  loadMetrics();\n' +
 '});\n' +

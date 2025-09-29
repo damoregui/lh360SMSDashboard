@@ -3,6 +3,8 @@ try { require('../lib/loadEnv'); } catch {}
 const { getDb } = require('../lib/db');
 const { verifyToken } = require('../lib/auth');
 
+const STOP_RE = /\bstop\b/i;
+
 function rangeUtc(from, to){
   const start = new Date(from + 'T00:00:00.000Z');
   const end   = new Date(new Date(to + 'T00:00:00.000Z').getTime() + 24*60*60*1000);
@@ -38,38 +40,33 @@ module.exports = async (req, res) => {
     const db  = await getDb();
     const col = db.collection('messages');
 
-    // Variantes del número
-    const digits = phoneRaw.replace(/\D/g, '');         // solo dígitos
-    const e164   = '+' + digits;                        // +E164
-    const noPlus = digits;                              // sin +
+    const digits = phoneRaw.replace(/\D/g, '');
+    const e164   = '+' + digits;
+    const noPlus = digits;
     const variants = Array.from(new Set([phoneRaw, e164, noPlus]));
 
-    // 1) Intento rápido por igualdad exacta a cualquiera de las variantes
+    // 1) Exact matches (excluye STOP)
     let items = await col.find({
       tenantId,
       direction: 'inbound',
       from: { $in: variants },
+      body: { $not: /\\bstop\\b/i },
       dateSentUtc: { $gte: start, $lt: end }
     }, {
       projection: { _id: 0, dateSentUtc: 1, body: 1, sid: 1 },
       sort: { dateSentUtc: 1 }
     }).limit(400).toArray();
 
-    // 2) Fallback: normalizo en el server side y comparo dígitos con $expr/$regexReplace
+    // 2) Fallback normalizando dígitos (excluye STOP)
     if (!items.length) {
       items = await col.find({
         tenantId,
         direction: 'inbound',
+        body: { $not: /\\bstop\\b/i },
         dateSentUtc: { $gte: start, $lt: end },
         $expr: {
           $eq: [
-            {
-              $regexReplace: {
-                input: "$from",
-                regex: /[^0-9]/g,
-                replacement: ""
-              }
-            },
+            { $regexReplace: { input: "$from", regex: /[^0-9]/g, replacement: "" } },
             digits
           ]
         }
@@ -78,6 +75,9 @@ module.exports = async (req, res) => {
         sort: { dateSentUtc: 1 }
       }).limit(400).toArray();
     }
+
+    // Safety filter por si algún motor ignora el regex anterior
+    items = items.filter(m => !STOP_RE.test(m.body || ''));
 
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
