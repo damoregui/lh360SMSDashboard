@@ -3,7 +3,8 @@ try { require('../lib/loadEnv'); } catch {}
 const { getDb } = require('../lib/db');
 const { verifyToken } = require('../lib/auth');
 
-const STOP_REGEX = '\\\\bstop\\\\b'; // usado dentro de $regex; case-insensitive
+// Buscamos cualquier "stop" (sin boundary) para no perdernos STOP/Stop/stop.
+const STOP_REGEX = 'stop';
 
 function parseDay(s){
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T00:00:00.000Z') : null;
@@ -11,8 +12,7 @@ function parseDay(s){
 function rangeUtc(from, to){
   const start = parseDay(from), end0 = parseDay(to);
   if (!start || !end0) return null;
-  const end = new Date(end0.getTime() + 24*60*60*1000); // exclusivo
-  return { start, end };
+  return { start, end: new Date(end0.getTime() + 24*60*60*1000) }; // fin exclusivo
 }
 const getQ = (q, k) => Array.isArray(q?.[k]) ? q[k][0] : (q?.[k] || '').trim();
 
@@ -28,7 +28,7 @@ module.exports = async (req, res) => {
     const tenantId = claims.tenantId;
 
     const from = getQ(req.query, 'from');
-    const to   = getQ(req.query, 'to');
+    const to   = getQ(req.query,   'to');
     const rng  = rangeUtc(from, to);
     if (!rng){
       res.statusCode = 400;
@@ -38,13 +38,12 @@ module.exports = async (req, res) => {
     const db = await getDb();
     const col = db.collection('messages');
 
-    const baseMatch = {
-      tenantId,
-      dateSentUtc: { $gte: rng.start, $lt: rng.end }
-    };
+    // Expresiones comunes para usar en $expr
+    const BODY_EXPR = { $ifNull: ['$body', { $ifNull: ['$Body', ''] }] };
+    const FROM_EXPR = { $ifNull: ['$from', { $ifNull: ['$From', null] }] };
 
     const facets = await col.aggregate([
-      { $match: baseMatch },
+      { $match: { tenantId, dateSentUtc: { $gte: rng.start, $lt: rng.end } } },
       { $facet: {
         dirCounts: [
           { $group: { _id: '$direction', c: { $sum: 1 } } }
@@ -76,15 +75,18 @@ module.exports = async (req, res) => {
           { $group: { _id: null, nums: { $addToSet: '$to' } } },
           { $project: { _id: 0, count: { $size: '$nums' } } }
         ],
+        // Conteo de STOP (inbound) mirando body o Body con regexMatch (case-insensitive)
         stopCount: [
-          { $match: { direction: 'inbound', body: { $regex: STOP_REGEX, $options: 'i' } } },
+          { $match: { direction: 'inbound' } },
+          { $match: { $expr: { $regexMatch: { input: BODY_EXPR, regex: STOP_REGEX, options: 'i' } } } },
           { $group: { _id: null, c: { $sum: 1 } } }
         ],
+        // Repeat responders (≥1 inbound que NO sea STOP), agrupando por from/From
         repeatResponders: [
-          // inbound que NO sean STOP
-          { $match: { direction: 'inbound', body: { $not: { $regex: STOP_REGEX, $options: 'i' } } } },
-          { $group: { _id: '$from', count: { $sum: 1 } } },
-          // >=1 ya está implícito, no filtramos
+          { $match: { direction: 'inbound' } },
+          { $match: { $expr: { $not: { $regexMatch: { input: BODY_EXPR, regex: STOP_REGEX, options: 'i' } } } } },
+          { $group: { _id: FROM_EXPR, count: { $sum: 1 } } },
+          { $match: { _id: { $ne: null } } },
           { $sort: { count: -1 } },
           { $limit: 500 }
         ]

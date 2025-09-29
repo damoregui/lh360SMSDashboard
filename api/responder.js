@@ -3,7 +3,8 @@ try { require('../lib/loadEnv'); } catch {}
 const { getDb } = require('../lib/db');
 const { verifyToken } = require('../lib/auth');
 
-const STOP_RE = /\bstop\b/i;
+// Ocultamos cualquier inbound que contenga "stop" en el body/Body
+const STOP_REGEX = 'stop';
 
 function rangeUtc(from, to){
   const start = new Date(from + 'T00:00:00.000Z');
@@ -45,39 +46,53 @@ module.exports = async (req, res) => {
     const noPlus = digits;
     const variants = Array.from(new Set([phoneRaw, e164, noPlus]));
 
-    // 1) Exact matches (excluye STOP)
-    let items = await col.find({
+    // Expresiones para $expr
+    const BODY_EXPR = { $ifNull: ['$body', { $ifNull: ['$Body', ''] }] };
+    const FROM_EXPR = { $ifNull: ['$from', { $ifNull: ['$From', ''] }] };
+
+    // Filtro común: inbound no-STOP en rango
+    const baseFilter = {
       tenantId,
       direction: 'inbound',
-      from: { $in: variants },
-      body: { $not: /\\bstop\\b/i },
-      dateSentUtc: { $gte: start, $lt: end }
+      dateSentUtc: { $gte: start, $lt: end },
+      $expr: { $not: { $regexMatch: { input: BODY_EXPR, regex: STOP_REGEX, options: 'i' } } }
+    };
+
+    // 1) Intento rápido: igualdad por from/From contra cualquiera de las variantes
+    let items = await col.find({
+      ...baseFilter,
+      $or: [
+        { from: { $in: variants } },
+        { From: { $in: variants } }
+      ]
     }, {
-      projection: { _id: 0, dateSentUtc: 1, body: 1, sid: 1 },
+      projection: { _id: 0, dateSentUtc: 1, body: 1, Body: 1, sid: 1 },
       sort: { dateSentUtc: 1 }
     }).limit(400).toArray();
 
-    // 2) Fallback normalizando dígitos (excluye STOP)
+    // 2) Fallback: comparo por dígitos normalizados en from/From
     if (!items.length) {
       items = await col.find({
-        tenantId,
-        direction: 'inbound',
-        body: { $not: /\\bstop\\b/i },
-        dateSentUtc: { $gte: start, $lt: end },
+        ...baseFilter,
         $expr: {
-          $eq: [
-            { $regexReplace: { input: "$from", regex: /[^0-9]/g, replacement: "" } },
-            digits
+          $and: [
+            baseFilter.$expr, // mantiene el no-STOP
+            {
+              $eq: [
+                { $regexReplace: { input: FROM_EXPR, regex: /[^0-9]/g, replacement: "" } },
+                digits
+              ]
+            }
           ]
         }
       }, {
-        projection: { _id: 0, dateSentUtc: 1, body: 1, sid: 1 },
+        projection: { _id: 0, dateSentUtc: 1, body: 1, Body: 1, sid: 1 },
         sort: { dateSentUtc: 1 }
       }).limit(400).toArray();
     }
 
-    // Safety filter por si algún motor ignora el regex anterior
-    items = items.filter(m => !STOP_RE.test(m.body || ''));
+    // Normalizo body: si Body existe y body no, uso Body
+    items = items.map(m => ({ ...m, body: (m.body ?? m.Body ?? '') }));
 
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
