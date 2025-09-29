@@ -64,7 +64,7 @@ module.exports = (req, res) => {
 '    <button id="ingestOpen">Ingest specific day</button>\n' +
 '  </div>\n' +
 '\n' +
-'  <!-- Totales: ahora 5 tarjetas en la misma fila -->\n' +
+'  <!-- Totales: 5 tarjetas -->\n' +
 '  <div class="grid" style="grid-template-columns: repeat(5, minmax(0,1fr)); margin-top:12px">\n' +
 '    <div class="card"><div class="muted">Sum Segments</div><div class="num" id="segments">0</div></div>\n' +
 '    <div class="card"><div class="muted">STOP (inbound)</div><div class="num" id="stopCount">0</div></div>\n' +
@@ -79,7 +79,13 @@ module.exports = (req, res) => {
 '    <div class="card"><div class="chart-wrap"><canvas id="dirChart"></canvas></div></div>\n' +
 '  </div>\n' +
 '\n' +
-'  <!-- Repeat Responders con collapse -->\n' +
+'  <!-- Errors by code -->\n' +
+'  <div class="card" id="errorsCard" style="margin-top:12px; display:none;">\n' +
+'    <div class="muted">Errors (by code)</div>\n' +
+'    <div id="errorsList" style="margin-top:6px"></div>\n' +
+'  </div>\n' +
+'\n' +
+'  <!-- Repeat Responders -->\n' +
 '  <div class="card" style="margin-top:12px">\n' +
 '    <div class="muted">Repeat Responders (&gt;1 replies)</div>\n' +
 '    <div id="repeatResponders" style="margin-top:6px"></div>\n' +
@@ -113,6 +119,7 @@ module.exports = (req, res) => {
 '    const tt = (to.value||"").trim();\n' +
 '    if (!f || !tt){ errorBox.textContent = "Pick dates."; return; }\n' +
 '    try{\n' +
+'      // METRICS\n' +
 '      const r = await fetch("/api/metrics?from=" + f + "&to=" + tt, { headers: { "authorization":"Bearer " + t } });\n' +
 '      const data = await r.json();\n' +
 '      if (!r.ok){ throw new Error((data && data.error) || "metrics_failed"); }\n' +
@@ -121,7 +128,6 @@ module.exports = (req, res) => {
 '      setNum("stopCount", data.stopCount);\n' +
 '      setNum("priceAbs", data.totalPriceAbs);\n' +
 '      setNum("uniqueProspectsTotal", data.uniqueProspectsTotal);\n' +
-'      // NEW: total messages (preferimos data.total; si no, outbound+inbound)\n' +
 '      setNum("totalMsgs", (typeof data.total==="number" ? data.total : (data.outbound||0)+(data.inbound||0)));\n' +
 '\n' +
 '      const sLabels = Object.keys(data.byStatus || {});\n' +
@@ -143,8 +149,30 @@ module.exports = (req, res) => {
 '        });\n' +
 '      }\n' +
 '\n' +
+'      // ERRORS (detallados) -> card visible solo si hay items\n' +
+'      try{\n' +
+'        const er = await fetch("/api/errors?from=" + f + "&to=" + tt, { headers: { "authorization":"Bearer " + t } });\n' +
+'        const ej = await er.json();\n' +
+'        if (er.ok && ej.ok){ renderErrors(ej.items||[]); }\n' +
+'        else { renderErrors([]); }\n' +
+'      }catch{ renderErrors([]); }\n' +
+'\n' +
 '      renderRepeatResponders(data.repeatResponders || [], f, tt);\n' +
 '    }catch(e){ errorBox.textContent = e.message || "Failed to load metrics."; }\n' +
+'  }\n' +
+'\n' +
+'  function renderErrors(items){\n' +
+'    const card = $("errorsCard"); const box = $("errorsList"); if (!card || !box) return;\n' +
+'    box.innerHTML = "";\n' +
+'    if (!items.length){ card.style.display = "none"; return; }\n' +
+'    card.style.display = "";\n' +
+'    const ul = document.createElement("ul"); ul.style.margin="8px 0 0"; ul.style.paddingLeft="16px";\n' +
+'    items.sort((a,b)=> (b.count||0)-(a.count||0)).forEach(it => {\n' +
+'      const li = document.createElement("li");\n' +
+'      li.textContent = (it.count||0) + " — Code " + (it.code||"?") + " — " + (it.description||"See Twilio docs");\n' +
+'      ul.appendChild(li);\n' +
+'    });\n' +
+'    box.appendChild(ul);\n' +
 '  }\n' +
 '\n' +
 '  function setLoading(v){ document.body.style.pointerEvents = v ? "none" : "auto"; document.body.style.opacity = v ? .7 : 1; }\n' +
