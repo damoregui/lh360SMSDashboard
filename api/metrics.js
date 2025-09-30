@@ -109,6 +109,40 @@ module.exports = async (req, res) => {
     const stopCount = (f.stopCount && f.stopCount[0]?.c) || 0;
 
     const repeatResponders = (f.repeatResponders || []).map(r => ({ phone: r._id, count: r.count }));
+    // Optional GHL enrichment (names + link) if locationId is provided in query
+    const locationId = getQ(req.query, 'locationId');
+    if (locationId){
+      const db2 = await getDb();
+      const Tenants = db2.collection('tenants');
+      const tenant = await Tenants.findOne({ _id: tenantId }, { projection: { 'ghl.locations': 1 } });
+      const { decryptFromBase64 } = require('../lib/crypto');
+      const { searchContactByPhone } = require('../lib/ghl');
+      const cred = (tenant && tenant.ghl && Array.isArray(tenant.ghl.locations) ? tenant.ghl.locations : []).find(l => l.locationId === locationId && l.active !== false);
+      if (cred){
+        const apiKey = decryptFromBase64(cred.apiKey_enc);
+        // limit concurrent lookups
+        const phones = repeatResponders.map(r => r.phone).slice(0, 500);
+        const chunk = async (arr, size) => {
+          const out = [];
+          for (let i=0; i<arr.length; i+=size) out.push(arr.slice(i,i+size));
+          return out;
+        };
+        const batches = await chunk(phones, 10);
+        const map = {};
+        for (const b of batches){
+          const results = await Promise.all(b.map(ph => searchContactByPhone({ apiKey, locationId, phone: ph }).catch(()=>null)));
+          b.forEach((ph, idx) => { map[ph] = results[idx]; });
+        }
+        repeatResponders = repeatResponders.map(r => {
+          const hit = map[r.phone];
+          if (hit && hit.id){
+            return { ...r, contactId: hit.id, firstName: hit.firstName || '', lastName: hit.lastName || '', ghlUrl: `https://app.gohighlevel.com/v2/location/${encodeURIComponent(locationId)}/contacts/detail/${encodeURIComponent(hit.id)}` };
+          }
+          return r;
+        });
+      }
+    }
+
 
     res.statusCode = 200;
     res.setHeader('Content-Type','application/json; charset=utf-8');
