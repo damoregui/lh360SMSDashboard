@@ -4,12 +4,12 @@ const { getDb } = require('../../../../../lib/db');
 const { encryptToBase64 } = require('../../../../../lib/crypto');
 
 module.exports = async (req, res) => {
-  try{
+  try {
     const { tenantId, locationId } = req.query;
     const db = await getDb();
     const Tenants = db.collection('tenants');
 
-    if (req.method === 'PATCH'){
+    if (req.method === 'PATCH') {
       const { apiKey, alias, active } = req.body || {};
       const updates = {};
       if (typeof alias !== 'undefined') updates['ghl.locations.$.alias'] = alias;
@@ -21,33 +21,39 @@ module.exports = async (req, res) => {
         { _id: tenantId, 'ghl.locations.locationId': locationId },
         { $set: updates }
       );
-      if (!r.matchedCount){
+      if (!r.matchedCount) {
         res.statusCode = 404;
+        res.setHeader('Content-Type','application/json; charset=utf-8');
         return res.end(JSON.stringify({ ok:false, error:'not_found' }));
       }
       res.statusCode = 200;
+      res.setHeader('Content-Type','application/json; charset=utf-8');
       return res.end(JSON.stringify({ ok:true }));
     }
 
-    if (req.method === 'DELETE'){
+    if (req.method === 'DELETE') {
       const r = await Tenants.updateOne(
         { _id: tenantId },
         { $pull: { 'ghl.locations': { locationId } } }
       );
-      if (!r.modifiedCount){
+      if (!r.modifiedCount) {
         res.statusCode = 404;
+        res.setHeader('Content-Type','application/json; charset=utf-8');
         return res.end(JSON.stringify({ ok:false, error:'not_found' }));
       }
       res.statusCode = 200;
+      res.setHeader('Content-Type','application/json; charset=utf-8');
       return res.end(JSON.stringify({ ok:true }));
     }
 
     res.setHeader('Allow','PATCH, DELETE');
     res.statusCode = 405;
+    res.setHeader('Content-Type','application/json; charset=utf-8');
     return res.end(JSON.stringify({ ok:false, error:'method_not_allowed' }));
-  }catch(e){
+  } catch (e) {
     console.error('ghl_locations_one_error', e && e.stack || e);
     res.statusCode = 500;
+    res.setHeader('Content-Type','application/json; charset=utf-8');
     return res.end(JSON.stringify({ ok:false, error: e.message || 'server_error' }));
   }
 };
