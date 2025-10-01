@@ -2,12 +2,20 @@
 try { require('../../../../../lib/loadEnv'); } catch {}
 const { getDb } = require('../../../../../lib/db');
 const { encryptToBase64 } = require('../../../../../lib/crypto');
+const { ObjectId } = require('mongodb');
+
+function tenantFilter(id){
+  const ors = [{ tenantId: id }];
+  if (/^[a-f0-9]{24}$/i.test(id)) { try { ors.push({ _id: new ObjectId(id) }); } catch {} }
+  return { $or: ors };
+}
 
 module.exports = async (req, res) => {
   try {
     const { tenantId, locationId } = req.query;
     const db = await getDb();
     const Tenants = db.collection('tenants');
+    const filter = tenantFilter(tenantId);
 
     if (req.method === 'PATCH') {
       const { apiKey, alias, active } = req.body || {};
@@ -18,7 +26,7 @@ module.exports = async (req, res) => {
       updates['ghl.locations.$.updatedAt'] = new Date();
 
       const r = await Tenants.updateOne(
-        { _id: tenantId, 'ghl.locations.locationId': locationId },
+        { ...filter, 'ghl.locations.locationId': locationId },
         { $set: updates }
       );
       if (!r.matchedCount) {
@@ -33,7 +41,7 @@ module.exports = async (req, res) => {
 
     if (req.method === 'DELETE') {
       const r = await Tenants.updateOne(
-        { _id: tenantId },
+        filter,
         { $pull: { 'ghl.locations': { locationId } } }
       );
       if (!r.modifiedCount) {
