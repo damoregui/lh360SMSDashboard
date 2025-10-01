@@ -122,7 +122,18 @@ function tenantFilter(id){
   return { $or: ors };
 }
 
-const locationId = getQ(req.query, 'locationId');
+let locationId = getQ(req.query, 'locationId');
+const effectiveTenantId = tenantId || (req.user && req.user.tenantId);
+// Fallback: if no locationId provided, use first active from tenant
+if (!locationId && effectiveTenantId) {
+  try {
+    const db2 = await getDb();
+    const Tenants = db2.collection('tenants');
+    const tdoc = await Tenants.findOne(tenantFilter(effectiveTenantId), { projection: { 'ghl.locations': 1 } });
+    const active = tdoc?.ghl?.locations?.find(l => l.active !== false);
+    if (active) { locationId = active.locationId; dbg && dbg('enrich:auto_location', { locationId }); }
+  } catch {}
+}
 if (locationId && repeatResponders.length){
   const Tenants = (await getDb()).collection('tenants');
   const tenant = await Tenants.findOne(tenantFilter(tenantId), { projection: { 'ghl.locations': 1 } });
