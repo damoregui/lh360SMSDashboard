@@ -126,7 +126,8 @@ module.exports = (req, res) => {
 '    if (!f || !tt){ errorBox.textContent = "Pick dates."; return; }\n' +
 '    try{\n' +
 '      // METRICS\n' +
-'      const r = await fetch("/api/metrics?from=" + f + "&to=" + tt, { headers: { "authorization":"Bearer " + t } });\n' +
+'      const locId = (typeof localStorage !== "undefined" ? (localStorage.getItem("ghl_locationId") || "") : "");
+const r = await fetch("/api/metrics?from=" + f + "&to=" + tt + (locId ? "&locationId=" + encodeURIComponent(locId) : ""), { headers: { "authorization":"Bearer " + t } });\n' +
 '      const data = await r.json();\n' +
 '      if (!r.ok){ throw new Error((data && data.error) || "metrics_failed"); }\n' +
 '      const setNum = (id,val)=>{ const el=$(id); if (el) el.textContent = val||0; };\n' +
