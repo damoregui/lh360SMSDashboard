@@ -152,7 +152,7 @@ if (locationId && repeatResponders.length){
     repeatResponders = repeatResponders.map(r => {
       const c = byPhone[r.phone];
       return (c && c.id)
-        ? { ...r, contactId: c.id, firstName: c.firstName || '', lastName: c.lastName || '', ghlUrl: `https://app.gohighlevel.com/v2/location/${encodeURIComponent(locationId)}/contacts/detail/${encodeURIComponent(c.id)}` }
+        ? { ...r, contactId: c.id, firstName: c.firstName || '', lastName: c.lastName || '', ghlUrl: `http://app.leadshub360.com/v2/location/${encodeURIComponent(locationId)}/contacts/detail/${encodeURIComponent(c.id)}` }
         : r;
     });
   }
