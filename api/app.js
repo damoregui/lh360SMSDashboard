@@ -193,6 +193,7 @@ module.exports = (req, res) => {
 '      const tr=document.createElement("tr"); tr.className="expander"; tr.dataset.phone=row.phone;\n' +
 '      const td1=document.createElement("td");\n' +
 '      const name = (row.firstName || row.lastName) ? (`${row.firstName||""} ${row.lastName||""}`).trim() : null;\n' +
+'      if (row.ghlUrl) { const a=document.createElement("a"); a.href=row.ghlUrl; a.target="_blank"; a.rel="noreferrer"; a.textContent=label; a.style.color="#fff"; a.style.textDecoration="none"; td1.appendChild(a); if (name){ const sub=document.createElement("div"); sub.className="muted"; sub.textContent=row.phone||""; td1.appendChild(sub); } }\n' +
 '      const label = name || (row.phone || "(unknown)");\n' +
 '      if (row.ghlUrl) { const a=document.createElement("a"); a.href=row.ghlUrl; a.target="_blank"; a.rel="noreferrer"; a.textContent=label; td1.appendChild(a); if (name){ const sub=document.createElement("div"); sub.className="muted"; sub.textContent=row.phone||""; td1.appendChild(sub); } }\n' +
 '      else { td1.textContent = label; }\n' +
