@@ -194,7 +194,7 @@ module.exports = (req, res) => {
 '      const td1=document.createElement("td");\n' +
 '      const name = (row.firstName || row.lastName) ? (`${row.firstName||""} ${row.lastName||""}`).trim() : null;\n' +
 '      const label = name || (row.phone || "(unknown)");\n' +
-'      if (row.ghlUrl) { const a=document.createElement("a"); a.href=row.ghlUrl; a.target="_blank"; a.rel="noreferrer"; a.textContent=label; td1.appendChild(a); if (name){ const sub=document.createElement("div"); sub.className="muted"; sub.textContent=row.phone||""; td1.appendChild(sub); } }\n' +
+'      if (row.ghlUrl) { const a=document.createElement("a"); a.href=row.ghlUrl; a.target="_blank"; a.rel="noreferrer"; a.textContent=label; a.style.color="#fff"; a.style.textDecoration="none"; td1.appendChild(a); if (name){ const sub=document.createElement("div"); sub.className="muted"; sub.textContent=row.phone||""; td1.appendChild(sub); } }\n' +
 '      else { td1.textContent = label; }\n' +
 '      const td2=document.createElement("td"); td2.textContent=row.count; tr.appendChild(td1); tr.appendChild(td2); tbody.appendChild(tr);\n' +
 '      const trMsg=document.createElement("tr"); trMsg.style.display="none"; const tdMsg=document.createElement("td"); tdMsg.colSpan=2; tdMsg.style.padding="0 8px 8px";\n' +
