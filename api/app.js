@@ -35,7 +35,7 @@ module.exports = (req, res) => {
 '#ingestDate::-webkit-calendar-picker-indicator { filter: invert(1) brightness(1.6); opacity: 1; }\n' +
 '.modal-backdrop{position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; justify-content:center; align-items:center; z-index:50}\n' +
 '.modal{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:16px; padding:16px; min-width:300px}\n' +
-'.modal .row{align-items:end}\n' +
+'.modal .row{align-items=end}\n' +
 'table{border-collapse:collapse; width:100%}\n' +
 'thead th{color:var(--muted); text-align:left; padding:6px 8px}\n' +
 'tbody td{padding:6px 8px; border-top:1px solid rgba(255,255,255,.08)}\n' +
@@ -139,17 +139,17 @@ module.exports = (req, res) => {
 '      const sLabels = Object.keys(data.byStatus || {});\n' +
 '      const sData   = sLabels.map(k => data.byStatus[k]);\n' +
 '      if (statusChart) statusChart.destroy();\n' +
-'      if ($("statusChart")){\n' +
-'        statusChart = new Chart($("statusChart"), {\n' +
+'      if ($("#statusChart")){\n' +
+'        statusChart = new Chart($("#statusChart"), {\n' +
 '          type: "bar", data: { labels: sLabels, datasets: [{ data: sData }] },\n' +
 '          options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } } }\n' +
 '        });\n' +
 '      }\n' +
 '\n' +
 '      if (dirChart) dirChart.destroy();\n' +
-'      if ($("dirChart")){\n' +
+'      if ($("#dirChart")){\n' +
 '        const dLabels = ["Outbound","Inbound"]; const dData=[data.outbound, data.inbound];\n' +
-'        dirChart = new Chart($("dirChart"), {\n' +
+'        dirChart = new Chart($("#dirChart"), {\n' +
 '          type: "doughnut", data: { labels: dLabels, datasets: [{ data: dData }] },\n' +
 '          options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom" } } }\n' +
 '        });\n' +
@@ -167,7 +167,7 @@ module.exports = (req, res) => {
 '  }\n' +
 '\n' +
 '  function renderErrorsCards(items){\n' +
-'    const card = $("errorsCard"); const grid = $("errorsGrid"); if (!card || !grid) return;\n' +
+'    const card = $("#errorsCard"); const grid = $("#errorsGrid"); if (!card || !grid) return;\n' +
 '    grid.innerHTML = "";\n' +
 '    if (!items.length){ card.style.display = "none"; return; }\n' +
 '    card.style.display = "";\n' +
@@ -184,7 +184,7 @@ module.exports = (req, res) => {
 '  setInterval(refreshToken, 10 * 60 * 1000);\n' +
 '\n' +
 '  function renderRepeatResponders(rr, f, tt){\n' +
-'    const box = $("repeatResponders"); if (!box) return; box.innerHTML = "";\n' +
+'    const box = $("#repeatResponders"); if (!box) return; box.innerHTML = "";\n' +
 '    if (!rr.length){ const em=document.createElement("div"); em.className="muted"; em.textContent="No responders in range."; box.appendChild(em); return; }\n' +
 '    const table=document.createElement("table"); const thead=document.createElement("thead"); const trh=document.createElement("tr");\n' +
 '    ["Phone","Replies"].forEach(h=>{ const th=document.createElement("th"); th.textContent=h; trh.appendChild(th); }); thead.appendChild(trh); table.appendChild(thead);\n' +
@@ -192,7 +192,7 @@ module.exports = (req, res) => {
 '    rr.forEach(row=>{\n' +
 '      const tr=document.createElement("tr"); tr.className="expander"; tr.dataset.phone=row.phone;\n' +
 '      const td1=document.createElement("td");\n' +
-'      const name = (row.firstName || row.lastName) ? (`${row.firstName||""} ${row.lastName||""}`).trim() : null;\n' +
+'      const name = (row.firstName || row.lastName) ? ((row.firstName||"") + " " + (row.lastName||"")).trim() : null;\n' +
 '      const label = name || (row.phone || "(unknown)");\n' +
 '      if (row.ghlUrl) { const a=document.createElement("a"); a.href=row.ghlUrl; a.target="_blank"; a.rel="noreferrer"; a.textContent=label; a.style.color="#fff"; a.style.textDecoration="none"; td1.appendChild(a); if (name){ const sub=document.createElement("div"); sub.className="muted"; sub.textContent=row.phone||""; td1.appendChild(sub); } }\n' +
 '      else { td1.textContent = label; }\n' +
@@ -201,7 +201,7 @@ module.exports = (req, res) => {
 '      const holder=document.createElement("div"); holder.className="messages"; holder.textContent=""; tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);\n' +
 '      let loaded=false, open=false;\n' +
 '      tr.addEventListener("click", async ()=>{\n' +
-'        open=!open; trMsg.style.display=open?"":"none";\n' +
+'        open=!open; trMsg.style.display=open?"": "none";\n' +
 '        if (!loaded && open){\n' +
 '          holder.textContent="Loading...";\n' +
 '          try{\n' +
@@ -223,16 +223,16 @@ module.exports = (req, res) => {
 '    box.appendChild(table);\n' +
 '  }\n' +
 '\n' +
-'  function setDateLimits(){ const input=$("ingestDate"); if(!input) return; const now=new Date(); const y=new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()-1); const yyyy=y.getUTCFullYear(); const mm=String(y.getUTCMonth()+1).padStart(2,"0"); const dd=String(y.getUTCDate()).padStart(2,"0"); const ymdMax=yyyy+"-"+mm+"-"+dd; input.max=ymdMax; input.value=ymdMax; }\n' +
-'  function openModal(){ setDateLimits(); const m=$("ingestModal"); if(m) m.style.display="flex"; }\n' +
-'  function closeModal(){ const m=$("ingestModal"); if(m) m.style.display="none"; }\n' +
+'  function setDateLimits(){ const input=$("#ingestDate"); if(!input) return; const now=new Date(); const y=new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()-1); const yyyy=y.getUTCFullYear(); const mm=String(y.getUTCMonth()+1).padStart(2,"0"); const dd=String(y.getUTCDate()).padStart(2,"0"); const ymdMax=yyyy+"-"+mm+"-"+dd; input.max=ymdMax; input.value=ymdMax; }\n' +
+'  function openModal(){ setDateLimits(); const m=$("#ingestModal"); if(m) m.style.display="flex"; }\n' +
+'  function closeModal(){ const m=$("#ingestModal"); if(m) m.style.display="none"; }\n' +
 '  document.addEventListener("keydown", (e)=>{ if (e.key==="Escape") closeModal(); });\n' +
-'  const modalEl = $("ingestModal"); if (modalEl) modalEl.addEventListener("click", (e)=>{ if (e.target.id==="ingestModal") closeModal(); });\n' +
+'  const modalEl = $("#ingestModal"); if (modalEl) modalEl.addEventListener("click", (e)=>{ if (e.target.id==="ingestModal") closeModal(); });\n' +
 '\n' +
 '  async function runIngestSpecificDay(){\n' +
 '    if (!errorBox) return;\n' +
 '    errorBox.textContent=""; const t=sessionStorage.getItem("authToken"); if(!t){ errorBox.textContent="No token. Go back to / and login."; return; }\n' +
-'    const input=$("ingestDate"); if(!input||!input.value){ errorBox.textContent="Please pick a valid date (YYYY-MM-DD)."; return; }\n' +
+'    const input=$("#ingestDate"); if(!input||!input.value){ errorBox.textContent="Please pick a valid date (YYYY-MM-DD)."; return; }\n' +
 '    const d=input.value; const picked=new Date(d+"T00:00:00Z"); const today=new Date(); today.setUTCHours(0,0,0,0); if(picked>=today){ errorBox.textContent="Only yesterday or earlier is allowed."; return; }\n' +
 '    setLoading(true);\n' +
 '    try{ const r=await fetch("/api/ingest?day="+d,{ method:"POST", headers:{ "authorization":"Bearer "+t }}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error((j&&j.error)||"ingest_failed"); await loadMetrics(); }\n' +
@@ -240,10 +240,10 @@ module.exports = (req, res) => {
 '    finally{ setLoading(false); closeModal(); }\n' +
 '  }\n' +
 '\n' +
-'  const btnLoad=$("load"); if (btnLoad) btnLoad.addEventListener("click", loadMetrics);\n' +
-'  const btnOpen=$("ingestOpen"); if (btnOpen) btnOpen.addEventListener("click", openModal);\n' +
-'  const btnRun=$("ingestRun"); if (btnRun) btnRun.addEventListener("click", runIngestSpecificDay);\n' +
-'  const btnCancel=$("ingestCancel"); if (btnCancel) btnCancel.addEventListener("click", closeModal);\n' +
+'  const btnLoad=$("#load"); if (btnLoad) btnLoad.addEventListener("click", loadMetrics);\n' +
+'  const btnOpen=$("#ingestOpen"); if (btnOpen) btnOpen.addEventListener("click", openModal);\n' +
+'  const btnRun=$("#ingestRun"); if (btnRun) btnRun.addEventListener("click", runIngestSpecificDay);\n' +
+'  const btnCancel=$("#ingestCancel"); if (btnCancel) btnCancel.addEventListener("click", closeModal);\n' +
 '\n' +
 '  loadMetrics();\n' +
 '});\n' +
@@ -263,103 +263,100 @@ module.exports = (req, res) => {
 '</body>\n' +
 '</html>\n';
 
-    
-// === Sentiment UI inject (safe) ===
-const SENTIMENT_SCRIPT = `
+// === Sentiment UI inject (DOM patch) ===
+// Agrega la columna "Sentiment" buscando la tabla en pantalla via MutationObserver.
+const SENTIMENT_PATCH = `
 <script>
 (function(){
-  function onReady(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
-  function paintSentiment(el, value){
-    var v = (value || '').toLowerCase();
-    el.textContent = v || '—';
-    el.className = 'badge ' + (v === 'positive' ? 'positive' : (v === 'negative' ? 'negative' : 'manual'));
+  function ready(fn){ if(document.readyState!=='loading') fn(); else document.addEventListener('DOMContentLoaded',fn); }
+
+  function injectBadgeCss(){
+    if (document.getElementById('sentiment-badge-css')) return;
+    var css = ''
+      + '.badge{padding:2px 8px;border-radius:999px;font-size:12px;line-height:1;display:inline-block}'
+      + '.badge.positive{background:rgba(34,197,94,.15);color:#22c55e}'
+      + '.badge.negative{background:rgba(239,68,68,.15);color:#ef4444}'
+      + '.badge.manual{background:rgba(234,179,8,.15);color:#eab308}';
+    var s = document.createElement('style'); s.id='sentiment-badge-css'; s.textContent = css; document.head.appendChild(s);
   }
-  async function fetchSentiment(phone, fromDay, toDay){
+
+  function paint(el, val){
+    var v=(val||'').toLowerCase();
+    el.textContent = v || '—';
+    el.className = 'badge ' + (v==='positive' ? 'positive' : (v==='negative' ? 'negative' : 'manual'));
+  }
+
+  async function hydrate(phone, fromDay, toDay, el){
     try{
       var t = sessionStorage.getItem('authToken');
       var headers = {}; if (t) headers['authorization'] = 'Bearer ' + t;
-      var r = await fetch('/api/responder?phone=' + encodeURIComponent(phone) + '&from=' + encodeURIComponent(fromDay) + '&to=' + encodeURIComponent(toDay), { headers });
+      var url = '/api/responder?phone=' + encodeURIComponent(phone)
+              + '&from=' + encodeURIComponent(fromDay||'')
+              + '&to='   + encodeURIComponent(toDay||'');
+      var r = await fetch(url, { headers });
       var j = await r.json().catch(()=>({}));
-      if (!r.ok || !j.ok) throw new Error((j && j.error) || 'responder_fail');
-      return j.sentiment || null;
-    }catch(e){ return null; }
+      if (r.ok && j && j.ok && j.sentiment) paint(el, j.sentiment);
+    }catch(_){}}
+
+  function ensure(){
+    var box = document.getElementById('repeatResponders'); if(!box) return;
+    var table = box.querySelector('table'); if(!table) return;
+
+    // 1) Header: agregar 3ra columna si solo hay 2
+    var thead = table.querySelector('thead'); if(!thead) return;
+    var trh = thead.querySelector('tr'); if(!trh) return;
+    var ths = trh.querySelectorAll('th');
+    if (ths.length === 2){
+      var th = document.createElement('th'); th.textContent = 'Sentiment'; th.style.textAlign='right';
+      trh.appendChild(th);
+    }
+
+    // 2) Filas: agregar celda, pintar & hidratar
+    var tbody = table.querySelector('tbody'); if(!tbody) return;
+
+    var from = document.getElementById('from') || document.getElementById('fromDay') || document.querySelector('[name="fromDay"]');
+    var to   = document.getElementById('to')   || document.getElementById('toDay')   || document.querySelector('[name="toDay"]');
+    var fromDay = (from and from.value) or '';
+    var toDay   = (to and to.value) or '';
+
+    [].forEach.call(tbody.querySelectorAll('tr'), function(tr, i){
+      if (tr.children.length >= 3) return;
+
+      // phone puede venir con nombre arriba y número abajo
+      var phone = '';
+      var tdPhone = tr.children[0];
+      if (tdPhone){
+        var parts = (tdPhone.textContent||'').split(/\n|\r/).map(function(s){return s.trim();}).filter(Boolean);
+        phone = parts.length>1 ? parts[parts.length-1] : (parts[0]||'');
+      }
+
+      var td = document.createElement('td'); td.style.textAlign='right';
+      var badge = document.createElement('span'); badge.className='badge manual'; badge.textContent='—';
+      td.appendChild(badge);
+      tr.appendChild(td);
+
+      var cached = tr.getAttribute('data-sentiment');
+      if (cached) paint(badge, cached);
+
+      if (!cached && phone){
+        setTimeout(function(){ hydrate(phone, fromDay, toDay, badge); }, 50 * i);
+      }
+    });
   }
-  onReady(function(){
-    try{
-      var css = ''
-        + '.badge{padding:2px 8px;border-radius:999px;font-size:12px;line-height:1;display:inline-block}'
-        + '.badge.positive{background:rgba(34,197,94,.15);color:#22c55e}'
-        + '.badge.negative{background:rgba(239,68,68,.15);color:#ef4444}'
-        + '.badge.manual{background:rgba(234,179,8,.15);color:#eab308}';
-      var s = document.createElement('style'); s.textContent = css; document.head.appendChild(s);
-    }catch(_){}
-    (function patch(){
-      if (typeof window.renderRepeatResponders !== 'function') { setTimeout(patch, 50); return; }
-      var _orig = window.renderRepeatResponders;
-      window.renderRepeatResponders = function(rr, fromDay, toDay){
-        var $ = function(id){ return document.getElementById(id); };
-        var box = $('repeatResponders'); if (!box) { try{ return _orig(rr, fromDay, toDay); }catch(e){ return; } }
-        box.innerHTML = '';
-        if (!rr || !rr.length){
-          var em = document.createElement('div'); em.className = 'muted'; em.textContent = 'No responders in range.'; box.appendChild(em); return;
-        }
-        var table = document.createElement('table');
-        var thead = document.createElement('thead');
-        var trh   = document.createElement('tr');
-        ['Phone','Replies','Sentiment'].forEach(function(h){ var th=document.createElement('th'); th.textContent=h; trh.appendChild(th); });
-        thead.appendChild(trh); table.appendChild(thead);
-        var tbody = document.createElement('tbody'); table.appendChild(tbody);
-        rr.forEach(function(row, i){
-          var tr  = document.createElement('tr'); tr.className = 'expander'; tr.dataset.phone = row.phone;
-          var td1 = document.createElement('td'); td1.textContent = row.phone || '(unknown)';
-          var td2 = document.createElement('td'); td2.textContent = row.count; td2.style.textAlign = 'right';
-          var td3 = document.createElement('td'); td3.style.textAlign = 'right';
-          var badge = document.createElement('span'); badge.className = 'badge manual'; badge.textContent = '—'; td3.appendChild(badge);
-          if (row.sentiment) paintSentiment(badge, row.sentiment);
-          tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tbody.appendChild(tr);
-          var trMsg = document.createElement('tr'); trMsg.style.display = 'none';
-          var tdMsg = document.createElement('td'); tdMsg.colSpan = 3; tdMsg.style.padding = '0 8px 8px';
-          var holder = document.createElement('div'); holder.className = 'messages'; holder.textContent = '';
-          tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);
-          var loaded = false, open = false;
-          tr.addEventListener('click', async function(){
-            open = !open; trMsg.style.display = open ? '' : 'none';
-            if (!loaded && open){
-              holder.textContent = 'Loading...';
-              try{
-                var t = sessionStorage.getItem('authToken');
-                var url = '/api/responder?phone=' + encodeURIComponent(row.phone) + '&from=' + encodeURIComponent(fromDay) + '&to=' + encodeURIComponent(toDay);
-                var r = await fetch(url, { headers: { 'authorization': 'Bearer ' + t } });
-                var j = await r.json();
-                if (!r.ok || !j.ok) throw new Error((j && j.error) || 'fetch_failed');
-                holder.innerHTML = '';
-                if (!j.messages || !j.messages.length){ holder.textContent = 'No messages for this number.'; loaded = true; return; }
-                j.messages.forEach(function(m){
-                  var rowEl = document.createElement('div'); rowEl.className = 'msgrow ' + (m.direction === 'inbound' ? 'inbound' : 'outbound');
-                  var ts    = document.createElement('span'); ts.className = 'ts'; ts.textContent = (window.fmtTsISO ? fmtTsISO(m.dateSentUtc) : m.dateSentUtc);
-                  var bubble= document.createElement('div'); bubble.className = 'bubble ' + (m.direction === 'inbound' ? 'in' : 'out');
-                  bubble.innerHTML = (window.esc ? esc(m.body) : (m.body || ''));
-                  rowEl.appendChild(ts); rowEl.appendChild(bubble); holder.appendChild(rowEl);
-                });
-                if (j.sentiment) paintSentiment(badge, j.sentiment);
-                loaded = true;
-              }catch(e){ holder.textContent = (e && e.message) || 'Failed to load messages.'; }
-            }
-          });
-          if (!row.sentiment){
-            setTimeout(async function(){ var s = await fetchSentiment(row.phone, fromDay, toDay); if (s) paintSentiment(badge, s); }, 50 * i);
-          }
-        });
-        box.appendChild(table);
-      };
-    })();
+
+  ready(function(){
+    injectBadgeCss();
+    ensure();
+    var target = document.getElementById('repeatResponders') || document.body;
+    var obs = new MutationObserver(function(){ ensure(); });
+    obs.observe(target, { childList:true, subtree:true });
   });
 })();
 </script>
 `;
-const htmlWithSentiment = html.replace('</body>', SENTIMENT_SCRIPT + '</body>');
 
-    res.end(htmlWithSentiment);
+const htmlWithSentiment = html.replace('</body>', SENTIMENT_PATCH + '</body>');
+return res.end(htmlWithSentiment);
   }catch(e){
     console.error("app_error", e && e.stack || e);
     res.statusCode = 500;
