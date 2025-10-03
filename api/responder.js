@@ -1,5 +1,8 @@
 // api/responder.js
 try { require('../lib/loadEnv'); } catch {}
+const { buildFingerprint } = require('../lib/fingerprint');
+const { toConversationText, analyzeSentiment } = require('../lib/analyzeSentiment');
+
 const { getDb } = require('../lib/db');
 const { verifyToken } = require('../lib/auth');
 
@@ -40,6 +43,7 @@ module.exports = async (req, res) => {
     const { start, end } = rangeUtc(dayFrom, dayTo);
     const db  = await getDb();
     const col = db.collection('messages');
+    const conversations = db.collection('conversations');
 
     // Variantes del número para maches exactos
     const digits = phoneRaw.replace(/\D/g, '');
@@ -135,8 +139,40 @@ module.exports = async (req, res) => {
 
     res.statusCode = 200;
     res.setHeader('Content-Type','application/json; charset=utf-8');
-    return res.end(JSON.stringify({ ok:true, phone: phoneRaw, count: all.length, messages: all }));
-  }catch(e){
+
+// --- Sentiment computation & persistence ---
+try {
+  const msgs = all.map((m,i)=>({ id: m.sid || String(i), createdAt: m.dateSentUtc, direction: m.direction, text: m.body }));
+  const fp = buildFingerprint(msgs.map(m => ({ id: m.id, createdAt: m.createdAt, direction: m.direction })));
+  const existing = await conversations.findOne({ tenantId, phone: phoneRaw }, { projection: { sentiment:1, sentimentUpdatedAt:1, sentimentFingerprint:1, sentimentModel:1, sentimentTokens:1 } });
+  let __sentiment;
+  if (existing && existing.sentiment && existing.sentimentFingerprint === fp) {
+    __sentiment = {
+      sentiment: existing.sentiment,
+      sentimentUpdatedAt: existing.sentimentUpdatedAt,
+      sentimentModel: existing.sentimentModel,
+      sentimentTokens: existing.sentimentTokens
+    };
+  } else {
+    const conversationText = toConversationText(msgs, (d)=> new Date(d).toISOString().replace('T',' ').slice(0,16));
+    const { label, usage } = await analyzeSentiment(conversationText);
+    const sentiment = label;
+    const sentimentUpdatedAt = new Date();
+    const sentimentModel = process.env.OPENAI_SENTIMENT_MODEL || 'gpt-4o-mini';
+    const sentimentTokens = (usage && usage.total_tokens) || 0;
+    await conversations.updateOne(
+      { tenantId, phone: phoneRaw },
+      { $set: { tenantId, phone: phoneRaw, sentiment, sentimentUpdatedAt, sentimentFingerprint: fp, sentimentModel, sentimentTokens } },
+      { upsert: true }
+    );
+    __sentiment = { sentiment, sentimentUpdatedAt, sentimentModel, sentimentTokens };
+  }
+  var __sentiment_export = __sentiment;
+} catch(e) {
+  var __sentiment_export = { sentiment: 'manual check' };
+}
+return res.end(JSON.stringify({ ok:true, phone: phoneRaw, count: all.length, messages: all, ...__sentiment_export }));
+}catch(e){
     console.error('responder_error', e && e.stack || e);
     res.statusCode = e.message === 'invalid_token' ? 401 : 500;
     return res.end(JSON.stringify({ ok:false, error: e.message || 'server_error' }));

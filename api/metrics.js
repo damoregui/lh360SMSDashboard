@@ -110,6 +110,14 @@ module.exports = async (req, res) => {
 
     
 let repeatResponders = (f.repeatResponders || []).map(r => ({ phone: r._id, count: r.count }));
+    try {
+      const phones = repeatResponders.map(r => r.phone);
+      if (phones.length) {
+        const cached = await conversations.find({ tenantId, phone: { $in: phones } }, { projection: { phone:1, sentiment:1, sentimentUpdatedAt:1 } }).toArray();
+        const map = new Map(cached.map(c => [c.phone, { sentiment: c.sentiment, sentimentUpdatedAt: c.sentimentUpdatedAt }]));
+        repeatResponders = repeatResponders.map(r => ({ ...r, ...(map.get(r.phone) || {}) }));
+      }
+    } catch(e) {}
 
 // --- GHL enrichment (if locationId is provided) ---
 const { decryptFromBase64 } = require('../lib/crypto');
