@@ -50,6 +50,11 @@ module.exports = (req, res) => {
 '.bubble{ background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12); padding:8px 10px; border-radius:14px; max-width:70%; }\n' +
 '.bubble.out{ border-color: rgba(34,197,94,.5); }\n' +
 '.bubble.in{  border-color: rgba(255,255,255,.28); }\n' +
+'/* Badges Sentiment */\n' +
+'.badge{padding:2px 8px;border-radius:999px;font-size:12px;line-height:1;display:inline-block}\n' +
+'.badge.positive{background:rgba(34,197,94,.15);color:#22c55e}\n' +
+'.badge.negative{background:rgba(239,68,68,.15);color:#ef4444}\n' +
+'.badge.manual{background:rgba(234,179,8,.15);color:#eab308}\n' +
 '</style>\n' +
 '</head>\n' +
 '<body>\n' +
@@ -183,56 +188,79 @@ module.exports = (req, res) => {
 '  async function refreshToken(){ const t = sessionStorage.getItem("authToken"); if (!t) return; try{ const r = await fetch("/api/refresh", { method:"POST", headers: { "authorization":"Bearer " + t } }); const j = await r.json().catch(()=>({})); if (r.ok && j.ok && j.token) sessionStorage.setItem("authToken", j.token); }catch{} }\n' +
 '  setInterval(refreshToken, 10 * 60 * 1000);\n' +
 '\n' +
+'  function paintSentiment(badge, value){\n' +
+'    const v = (value||\"\").toLowerCase();\n' +
+'    badge.textContent = v || \"—\";\n' +
+'    badge.className = \"badge \" + (v === \"positive\" ? \"positive\" : (v === \"negative\" ? \"negative\" : \"manual\"));\n' +
+'  }\n' +
+'\n' +
+'  async function hydrateSentiment(phone, fromDay, toDay, badge){\n' +
+'    try{\n' +
+'      const t = sessionStorage.getItem(\"authToken\");\n' +
+'      const r = await fetch(\"/api/responder?phone=\"+encodeURIComponent(phone)+\"&from=\"+encodeURIComponent(fromDay)+\"&to=\"+encodeURIComponent(toDay), { headers: { \"authorization\":\"Bearer \"+t } });\n' +
+'      const j = await r.json().catch(()=>({}));\n' +
+'      if (r.ok && j && j.ok && j.sentiment) paintSentiment(badge, j.sentiment);\n' +
+'    }catch(_){ /* ignore */ }\n' +
+'  }\n' +
+'\n' +
 '  function renderRepeatResponders(rr, f, tt){\n' +
-'    const box = $("repeatResponders"); if (!box) return; box.innerHTML = "";\n' +
-'    if (!rr.length){ const em=document.createElement("div"); em.className="muted"; em.textContent="No responders in range."; box.appendChild(em); return; }\n' +
-'    const table=document.createElement("table"); const thead=document.createElement("thead"); const trh=document.createElement("tr");\n' +
-'    ["Phone","Replies"].forEach(h=>{ const th=document.createElement("th"); th.textContent=h; trh.appendChild(th); }); thead.appendChild(trh); table.appendChild(thead);\n' +
-'    const tbody=document.createElement("tbody"); table.appendChild(tbody);\n' +
-'    rr.forEach(row=>{\n' +
-'      const tr=document.createElement("tr"); tr.className="expander"; tr.dataset.phone=row.phone;\n' +
-'      const td1=document.createElement("td");\n' +
-'      const name = (row.firstName || row.lastName) ? (`${row.firstName||""} ${row.lastName||""}`).trim() : null;\n' +
-'      const label = name || (row.phone || "(unknown)");\n' +
-'      if (row.ghlUrl) { const a=document.createElement("a"); a.href=row.ghlUrl; a.target="_blank"; a.rel="noreferrer"; a.textContent=label; a.style.color="#fff"; a.style.textDecoration="none"; td1.appendChild(a); if (name){ const sub=document.createElement("div"); sub.className="muted"; sub.textContent=row.phone||""; td1.appendChild(sub); } }\n' +
+'    const box = $(\"repeatResponders\"); if (!box) return; box.innerHTML = \"\";\n' +
+'    if (!rr.length){ const em=document.createElement(\"div\"); em.className=\"muted\"; em.textContent=\"No responders in range.\"; box.appendChild(em); return; }\n' +
+'    const table=document.createElement(\"table\"); const thead=document.createElement(\"thead\"); const trh=document.createElement(\"tr\");\n' +
+'    [\"Phone\",\"Replies\",\"Sentiment\"].forEach(h=>{ const th=document.createElement(\"th\"); th.textContent=h; trh.appendChild(th); }); thead.appendChild(trh); table.appendChild(thead);\n' +
+'    const tbody=document.createElement(\"tbody\"); table.appendChild(tbody);\n' +
+'    rr.forEach((row,i)=>{\n' +
+'      const tr=document.createElement(\"tr\"); tr.className=\"expander\"; tr.dataset.phone=row.phone;\n' +
+'      const td1=document.createElement(\"td\");\n' +
+'      const name = (row.firstName || row.lastName) ? ((row.firstName||\"\") + \" \" + (row.lastName||\"\")).trim() : null;\n' +
+'      const label = name || (row.phone || \"(unknown)\");\n' +
+'      if (row.ghlUrl) { const a=document.createElement(\"a\"); a.href=row.ghlUrl; a.target=\"_blank\"; a.rel=\"noreferrer\"; a.textContent=label; a.style.color=\"#fff\"; a.style.textDecoration=\"none\"; td1.appendChild(a); if (name){ const sub=document.createElement(\"div\"); sub.className=\"muted\"; sub.textContent=row.phone||\"\"; td1.appendChild(sub); } }\n' +
 '      else { td1.textContent = label; }\n' +
-'      const td2=document.createElement("td"); td2.textContent=row.count; tr.appendChild(td1); tr.appendChild(td2); tbody.appendChild(tr);\n' +
-'      const trMsg=document.createElement("tr"); trMsg.style.display="none"; const tdMsg=document.createElement("td"); tdMsg.colSpan=2; tdMsg.style.padding="0 8px 8px";\n' +
-'      const holder=document.createElement("div"); holder.className="messages"; holder.textContent=""; tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);\n' +
+'      const td2=document.createElement(\"td\"); td2.textContent=row.count; td2.style.textAlign=\"right\";\n' +
+'      const td3=document.createElement(\"td\"); td3.style.textAlign=\"right\"; const badge=document.createElement(\"span\"); badge.className=\"badge manual\"; badge.textContent=\"—\"; td3.appendChild(badge);\n' +
+'      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tbody.appendChild(tr);\n' +
+'\n' +
+'      // Row with messages\n' +
+'      const trMsg=document.createElement(\"tr\"); trMsg.style.display=\"none\"; const tdMsg=document.createElement(\"td\"); tdMsg.colSpan=3; tdMsg.style.padding=\"0 8px 8px\";\n' +
+'      const holder=document.createElement(\"div\"); holder.className=\"messages\"; holder.textContent=\"\"; tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);\n' +
 '      let loaded=false, open=false;\n' +
-'      tr.addEventListener("click", async ()=>{\n' +
-'        open=!open; trMsg.style.display=open?"":"none";\n' +
+'      tr.addEventListener(\"click\", async ()=>{\n' +
+'        open=!open; trMsg.style.display=open?\"\":\"none\";\n' +
 '        if (!loaded && open){\n' +
-'          holder.textContent="Loading...";\n' +
+'          holder.textContent=\"Loading...\";\n' +
 '          try{\n' +
-'            const t=sessionStorage.getItem("authToken");\n' +
-'            const url="/api/responder?phone="+encodeURIComponent(row.phone)+"&from="+encodeURIComponent(f)+"&to="+encodeURIComponent(tt);\n' +
-'            const r=await fetch(url,{ headers:{ "authorization":"Bearer "+t }}); const j=await r.json(); if(!r.ok||!j.ok) throw new Error((j&&j.error)||"fetch_failed");\n' +
-'            holder.innerHTML=""; if(!j.messages||!j.messages.length){ holder.textContent="No messages for this number."; loaded=true; return; }\n' +
+'            const t=sessionStorage.getItem(\"authToken\");\n' +
+'            const url=\"/api/responder?phone=\"+encodeURIComponent(row.phone)+\"&from=\"+encodeURIComponent(f)+\"&to=\"+encodeURIComponent(tt);\n' +
+'            const r=await fetch(url,{ headers:{ \"authorization\":\"Bearer \"+t }}); const j=await r.json(); if(!r.ok||!j.ok) throw new Error((j&&j.error)||\"fetch_failed\");\n' +
+'            holder.innerHTML=\"\"; if(!j.messages||!j.messages.length){ holder.textContent=\"No messages for this number.\"; loaded=true; return; }\n' +
 '            j.messages.forEach(m=>{\n' +
-'              const rowEl=document.createElement("div"); rowEl.className="msgrow " + (m.direction==="inbound" ? "inbound" : "outbound");\n' +
-'              const ts=document.createElement("span"); ts.className="ts"; ts.textContent=fmtTsISO(m.dateSentUtc);\n' +
-'              const bubble=document.createElement("div"); bubble.className="bubble " + (m.direction==="inbound" ? "in" : "out"); bubble.innerHTML=esc(m.body);\n' +
+'              const rowEl=document.createElement(\"div\"); rowEl.className=\"msgrow \" + (m.direction===\"inbound\" ? \"inbound\" : \"outbound\");\n' +
+'              const ts=document.createElement(\"span\"); ts.className=\"ts\"; ts.textContent=fmtTsISO(m.dateSentUtc);\n' +
+'              const bubble=document.createElement(\"div\"); bubble.className=\"bubble \" + (m.direction===\"inbound\" ? \"in\" : \"out\"); bubble.innerHTML=esc(m.body);\n' +
 '              rowEl.appendChild(ts); rowEl.appendChild(bubble); holder.appendChild(rowEl);\n' +
 '            });\n' +
+'            if (j.sentiment) paintSentiment(badge, j.sentiment);\n' +
 '            loaded=true;\n' +
-'          }catch(e){ holder.textContent=(e&&e.message)||"Failed to load messages."; }\n' +
+'          }catch(e){ holder.textContent=(e&&e.message)||\"Failed to load messages.\"; }\n' +
 '        }\n' +
 '      });\n' +
+'\n' +
+'      // Prefetch sentiment so the column fills without opening\n' +
+'      setTimeout(()=>{ hydrateSentiment(row.phone, f, tt, badge); }, 50 * i);\n' +
 '    });\n' +
 '    box.appendChild(table);\n' +
 '  }\n' +
 '\n' +
-'  function setDateLimits(){ const input=$("ingestDate"); if(!input) return; const now=new Date(); const y=new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()-1); const yyyy=y.getUTCFullYear(); const mm=String(y.getUTCMonth()+1).padStart(2,"0"); const dd=String(y.getUTCDate()).padStart(2,"0"); const ymdMax=yyyy+"-"+mm+"-"+dd; input.max=ymdMax; input.value=ymdMax; }\n' +
-'  function openModal(){ setDateLimits(); const m=$("ingestModal"); if(m) m.style.display="flex"; }\n' +
-'  function closeModal(){ const m=$("ingestModal"); if(m) m.style.display="none"; }\n' +
-'  document.addEventListener("keydown", (e)=>{ if (e.key==="Escape") closeModal(); });\n' +
-'  const modalEl = $("ingestModal"); if (modalEl) modalEl.addEventListener("click", (e)=>{ if (e.target.id==="ingestModal") closeModal(); });\n' +
+'  function setDateLimits(){ const input=$(\"ingestDate\"); if(!input) return; const now=new Date(); const y=new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()-1); const yyyy=y.getUTCFullYear(); const mm=String(y.getUTCMonth()+1).padStart(2,\"0\"); const dd=String(y.getUTCDate()).padStart(2,\"0\"); const ymdMax=yyyy+\"-\"+mm+\"-\"+dd; input.max=ymdMax; input.value=ymdMax; }\n' +
+'  function openModal(){ setDateLimits(); const m=$(\"ingestModal\"); if(m) m.style.display=\"flex\"; }\n' +
+'  function closeModal(){ const m=$(\"ingestModal\"); if(m) m.style.display=\"none\"; }\n' +
+'  document.addEventListener(\"keydown\", (e)=>{ if (e.key===\"Escape\") closeModal(); });\n' +
+'  const modalEl = $(\"ingestModal\"); if (modalEl) modalEl.addEventListener(\"click\", (e)=>{ if (e.target.id===\"ingestModal\") closeModal(); });\n' +
 '\n' +
 '  async function runIngestSpecificDay(){\n' +
 '    if (!errorBox) return;\n' +
-'    errorBox.textContent=""; const t=sessionStorage.getItem("authToken"); if(!t){ errorBox.textContent="No token. Go back to / and login."; return; }\n' +
-'    const input=$("ingestDate"); if(!input||!input.value){ errorBox.textContent="Please pick a valid date (YYYY-MM-DD)."; return; }\n' +
+'    errorBox.textContent=\"\"; const t=sessionStorage.getItem(\"authToken\"); if(!t){ errorBox.textContent=\"No token. Go back to / and login.\"; return; }\n' +
+'    const input=$(\"ingestDate\"); if(!input||!input.value){ errorBox.textContent=\"Please pick a valid date (YYYY-MM-DD).\"; return; }\n' +
 '    const d=input.value; const picked=new Date(d+\"T00:00:00Z\"); const today=new Date(); today.setUTCHours(0,0,0,0); if(picked>=today){ errorBox.textContent=\"Only yesterday or earlier is allowed.\"; return; }\n' +
 '    setLoading(true);\n' +
 '    try{ const r=await fetch(\"/api/ingest?day=\"+d,{ method:\"POST\", headers:{ \"authorization\":\"Bearer \"+t }}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error((j&&j.error)||\"ingest_failed\"); await loadMetrics(); }\n' +
@@ -240,123 +268,30 @@ module.exports = (req, res) => {
 '    finally{ setLoading(false); closeModal(); }\n' +
 '  }\n' +
 '\n' +
-'  const btnLoad=$("load"); if (btnLoad) btnLoad.addEventListener("click", loadMetrics);\n' +
-'  const btnOpen=$("ingestOpen"); if (btnOpen) btnOpen.addEventListener("click", openModal);\n' +
-'  const btnRun=$("ingestRun"); if (btnRun) btnRun.addEventListener("click", runIngestSpecificDay);\n' +
-'  const btnCancel=$("ingestCancel"); if (btnCancel) btnCancel.addEventListener("click", closeModal);\n' +
+'  const btnLoad=$(\"load\"); if (btnLoad) btnLoad.addEventListener(\"click\", loadMetrics);\n' +
+'  const btnOpen=$(\"ingestOpen\"); if (btnOpen) btnOpen.addEventListener(\"click\", openModal);\n' +
+'  const btnRun=$(\"ingestRun\"); if (btnRun) btnRun.addEventListener(\"click\", runIngestSpecificDay);\n' +
+'  const btnCancel=$(\"ingestCancel\"); if (btnCancel) btnCancel.addEventListener(\"click\", closeModal);\n' +
 '\n' +
 '  loadMetrics();\n' +
 '});\n' +
 '</script>\n' +
 '\n' +
 '<!-- Modal -->\n' +
-'<div id="ingestModal" class="modal-backdrop">\n' +
-'  <div class="modal">\n' +
-'    <div class="muted" style="font-size:12px;margin-bottom:6px">Pick a day (UTC)</div>\n' +
-'    <div class="row">\n' +
-'      <input id="ingestDate" type="date">\n' +
-'      <button id="ingestRun">Run ingest</button>\n' +
-'      <button id="ingestCancel" class="muted" style="background:#0b1220;border:1px solid #26334d">Cancel</button>\n' +
+'<div id=\"ingestModal\" class=\"modal-backdrop\">\n' +
+'  <div class=\"modal\">\n' +
+'    <div class=\"muted\" style=\"font-size:12px;margin-bottom:6px\">Pick a day (UTC)</div>\n' +
+'    <div class=\"row\">\n' +
+'      <input id=\"ingestDate\" type=\"date\">\n' +
+'      <button id=\"ingestRun\">Run ingest</button>\n' +
+'      <button id=\"ingestCancel\" class=\"muted\" style=\"background:#0b1220;border:1px solid #26334d\">Cancel</button>\n' +
 '    </div>\n' +
 '  </div>\n' +
 '</div>\n' +
 '</body>\n' +
 '</html>\n';
 
-// === Sentiment UI inject (DOM patch) ===
-const SENTIMENT_PATCH = `
-<script>
-(function(){
-  function ready(fn){ if(document.readyState!=='loading') fn(); else document.addEventListener('DOMContentLoaded',fn); }
-
-  function injectBadgeCss(){
-    if (document.getElementById('sentiment-badge-css')) return;
-    var css = ''
-      + '.badge{padding:2px 8px;border-radius:999px;font-size:12px;line-height:1;display:inline-block}'
-      + '.badge.positive{background:rgba(34,197,94,.15);color:#22c55e}'
-      + '.badge.negative{background:rgba(239,68,68,.15);color:#ef4444}'
-      + '.badge.manual{background:rgba(234,179,8,.15);color:#eab308}';
-    var s = document.createElement('style'); s.id='sentiment-badge-css'; s.textContent = css; document.head.appendChild(s);
-  }
-
-  function paint(el, val){
-    var v=(val||'').toLowerCase();
-    el.textContent = v || '—';
-    el.className = 'badge ' + (v==='positive' ? 'positive' : (v==='negative' ? 'negative' : 'manual'));
-  }
-
-  async function hydrate(phone, fromDay, toDay, el){
-    try{
-      var t = sessionStorage.getItem('authToken');
-      var headers = {}; if (t) headers['authorization'] = 'Bearer ' + t;
-      var url = '/api/responder?phone=' + encodeURIComponent(phone)
-              + '&from=' + encodeURIComponent(fromDay||'')
-              + '&to='   + encodeURIComponent(toDay||'');
-      var r = await fetch(url, { headers });
-      var j = await r.json().catch(()=>({}));
-      if (r.ok && j && j.ok && j.sentiment) paint(el, j.sentiment);
-    }catch(_){}
-  }
-
-  function ensure(){
-    var box = document.getElementById('repeatResponders'); if(!box) return;
-    var table = box.querySelector('table'); if(!table) return;
-
-    // 1) Header: agregar 3ra columna si solo hay 2
-    var thead = table.querySelector('thead'); if(!thead) return;
-    var trh = thead.querySelector('tr'); if(!trh) return;
-    var ths = trh.querySelectorAll('th');
-    if (ths.length === 2){
-      var th = document.createElement('th'); th.textContent = 'Sentiment'; th.style.textAlign='right';
-      trh.appendChild(th);
-    }
-
-    // 2) Filas: agregar celda, pintar & hidratar
-    var tbody = table.querySelector('tbody'); if(!tbody) return;
-
-    var from = document.getElementById('from') || document.getElementById('fromDay') || document.querySelector('[name="fromDay"]');
-    var to   = document.getElementById('to')   || document.getElementById('toDay')   || document.querySelector('[name="toDay"]');
-    var fromDay = (from && from.value) || '';
-    var toDay   = (to && to.value) || '';
-
-    [].forEach.call(tbody.querySelectorAll('tr'), function(tr, i){
-      if (tr.children.length >= 3) return;
-
-      // phone puede venir con nombre arriba y número abajo
-      var phone = '';
-      var tdPhone = tr.children[0];
-      if (tdPhone){
-        var parts = (tdPhone.textContent||'').split(/\n|\r/).map(function(s){return s.trim();}).filter(Boolean);
-        phone = parts.length>1 ? parts[parts.length-1] : (parts[0]||'');
-      }
-
-      var td = document.createElement('td'); td.style.textAlign='right';
-      var badge = document.createElement('span'); badge.className='badge manual'; badge.textContent='—';
-      td.appendChild(badge);
-      tr.appendChild(td);
-
-      var cached = tr.getAttribute('data-sentiment');
-      if (cached) paint(badge, cached);
-
-      if (!cached && phone){
-        setTimeout(function(){ hydrate(phone, fromDay, toDay, badge); }, 50 * i);
-      }
-    });
-  }
-
-  ready(function(){
-    injectBadgeCss();
-    ensure();
-    var target = document.getElementById('repeatResponders') || document.body;
-    var obs = new MutationObserver(function(){ ensure(); });
-    obs.observe(target, { childList:true, subtree:true });
-  });
-})();
-</script>
-`;
-
-const htmlWithSentiment = html.replace('</body>', SENTIMENT_PATCH + '</body>');
-return res.end(htmlWithSentiment);
+    res.end(html);
   }catch(e){
     console.error("app_error", e && e.stack || e);
     res.statusCode = 500;
