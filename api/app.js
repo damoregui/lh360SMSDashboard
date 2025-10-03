@@ -114,8 +114,6 @@ module.exports = (req, res) => {
 '  let statusChart, dirChart;\n' +
 '  function fmtTsISO(iso){ try{ const d=new Date(iso); return d.toISOString().replace("T"," ").replace(".000Z","Z"); }catch{ return iso||"" } }\n' +
 '  function esc(s){ return (s==null?\'\':String(s)).replace(/&/g,\'&amp;\').replace(/</g,\'&lt;\').replace(/>/g,\'&gt;\').replace(/"/g,\'&quot;\'); }\n' +
-'function paintSentiment(el, value){ const v=(value||\'\').toLowerCase(); el.textContent=v||\'—\'; el.className=\'badge \'+(v===\'positive\'?\'positive\':(v===\'negative\'?\'negative\':\'manual\')); }\n' +
-'async function fetchSentiment(phone, fromDay, toDay){ const t=sessionStorage.getItem(\'authToken\'); const headers={}; if(t) headers[\'authorization\']=\'Bearer \'+t; const url=\'/api/responder?phone=\'+encodeURIComponent(phone)+\'&from=\'+encodeURIComponent(fromDay)+\'&to=\'+encodeURIComponent(toDay); const r=await fetch(url,{headers}); const j=await r.json().catch(()=>({})); if(!r.ok||!j.ok) throw new Error((j&&j.error)||\'responder_fail\'); return j.sentiment||null; }\n' +\n' +
 '\n' +
 '  async function loadMetrics(){\n' +
 '    if (!errorBox) return;\n' +
@@ -186,59 +184,44 @@ module.exports = (req, res) => {
 '  setInterval(refreshToken, 10 * 60 * 1000);\n' +
 '\n' +
 '  function renderRepeatResponders(rr, f, tt){\n' +
-'  const box = $("repeatResponders"); if (!box) return; box.innerHTML = "";\n' +
-'  if (!rr.length){ const em=document.createElement("div"); em.className="muted"; em.textContent="No responders in range."; box.appendChild(em); return; }\n' +
-'  const table=document.createElement("table"); const thead=document.createElement("thead"); const trh=document.createElement("tr");\n' +
-'  ["Phone","Replies","Sentiment"].forEach(h=>{ const th=document.createElement("th"); th.textContent=h; trh.appendChild(th); }); thead.appendChild(trh); table.appendChild(thead);\n' +
-'  const tbody=document.createElement("tbody"); table.appendChild(tbody);\n' +
-'\n' +
-'  rr.forEach((row, i)=>{\n' +
-'    const tr=document.createElement("tr"); tr.className="expander"; tr.dataset.phone=row.phone;\n' +
-'    const td1=document.createElement("td"); td1.textContent=row.phone||"(unknown)";\n' +
-'    const td2=document.createElement("td"); td2.textContent=row.count; td2.style.textAlign="right";\n' +
-'    const td3=document.createElement("td"); td3.style.textAlign="right"; const badge=document.createElement("span"); badge.className="badge manual"; badge.textContent="—"; td3.appendChild(badge);\n' +
-'    if (row.sentiment) paintSentiment(badge, row.sentiment);\n' +
-'    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tbody.appendChild(tr);\n' +
-'\n' +
-'    // Toggle existing details (reuses original click behavior from this app)\n' +
-'    const trMsg=document.createElement("tr"); trMsg.style.display="none"; const tdMsg=document.createElement("td"); tdMsg.colSpan=3; tdMsg.style.padding="0 8px 8px";\n' +
-'    const holder=document.createElement("div"); holder.className="messages"; holder.textContent=""; tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);\n' +
-'    let loaded=false, open=false;\n' +
-'\n' +
-'    tr.addEventListener("click", async ()=>{\n' +
-'      open=!open; trMsg.style.display=open?"":"none";\n' +
-'      if (!loaded && open){\n' +
-'        holder.textContent="Loading...";\n' +
-'        try{\n' +
-'          const t=sessionStorage.getItem("authToken");\n' +
-'          const url="/api/responder?phone="+encodeURIComponent(row.phone)+"&from="+encodeURIComponent(f)+"&to="+encodeURIComponent(tt);\n' +
-'          const r=await fetch(url,{ headers:{ "authorization":"Bearer "+t }});\n' +
-'          const j=await r.json(); if(!r.ok||!j.ok) throw new Error((j&&j.error)||"fetch_failed");\n' +
-'          holder.innerHTML="";\n' +
-'          if(!j.messages||!j.messages.length){ holder.textContent="No messages for this number."; loaded=true; return; }\n' +
-'          j.messages.forEach(m=>{\n' +
-'            const rowEl=document.createElement("div"); rowEl.className="msgrow " + (m.direction==="inbound" ? "inbound" : "outbound");\n' +
-'            const ts=document.createElement("span"); ts.className="ts"; ts.textContent=fmtTsISO(m.dateSentUtc);\n' +
-'            const bubble=document.createElement("div"); bubble.className="bubble " + (m.direction==="inbound" ? "in" : "out"); bubble.innerHTML=esc(m.body);\n' +
-'            rowEl.appendChild(ts); rowEl.appendChild(bubble); holder.appendChild(rowEl);\n' +
-'          });\n' +
-'          if (j.sentiment) paintSentiment(badge, j.sentiment);\n' +
-'          loaded=true;\n' +
-'        }catch(e){ holder.textContent=(e&&e.message)||"Failed to load messages."; }\n' +
-'      }\n' +
+'    const box = $("repeatResponders"); if (!box) return; box.innerHTML = "";\n' +
+'    if (!rr.length){ const em=document.createElement("div"); em.className="muted"; em.textContent="No responders in range."; box.appendChild(em); return; }\n' +
+'    const table=document.createElement("table"); const thead=document.createElement("thead"); const trh=document.createElement("tr");\n' +
+'    ["Phone","Replies"].forEach(h=>{ const th=document.createElement("th"); th.textContent=h; trh.appendChild(th); }); thead.appendChild(trh); table.appendChild(thead);\n' +
+'    const tbody=document.createElement("tbody"); table.appendChild(tbody);\n' +
+'    rr.forEach(row=>{\n' +
+'      const tr=document.createElement("tr"); tr.className="expander"; tr.dataset.phone=row.phone;\n' +
+'      const td1=document.createElement("td");\n' +
+'      const name = (row.firstName || row.lastName) ? (`${row.firstName||""} ${row.lastName||""}`).trim() : null;\n' +
+'      const label = name || (row.phone || "(unknown)");\n' +
+'      if (row.ghlUrl) { const a=document.createElement("a"); a.href=row.ghlUrl; a.target="_blank"; a.rel="noreferrer"; a.textContent=label; a.style.color="#fff"; a.style.textDecoration="none"; td1.appendChild(a); if (name){ const sub=document.createElement("div"); sub.className="muted"; sub.textContent=row.phone||""; td1.appendChild(sub); } }\n' +
+'      else { td1.textContent = label; }\n' +
+'      const td2=document.createElement("td"); td2.textContent=row.count; tr.appendChild(td1); tr.appendChild(td2); tbody.appendChild(tr);\n' +
+'      const trMsg=document.createElement("tr"); trMsg.style.display="none"; const tdMsg=document.createElement("td"); tdMsg.colSpan=2; tdMsg.style.padding="0 8px 8px";\n' +
+'      const holder=document.createElement("div"); holder.className="messages"; holder.textContent=""; tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);\n' +
+'      let loaded=false, open=false;\n' +
+'      tr.addEventListener("click", async ()=>{\n' +
+'        open=!open; trMsg.style.display=open?"":"none";\n' +
+'        if (!loaded && open){\n' +
+'          holder.textContent="Loading...";\n' +
+'          try{\n' +
+'            const t=sessionStorage.getItem("authToken");\n' +
+'            const url="/api/responder?phone="+encodeURIComponent(row.phone)+"&from="+encodeURIComponent(f)+"&to="+encodeURIComponent(tt);\n' +
+'            const r=await fetch(url,{ headers:{ "authorization":"Bearer "+t }}); const j=await r.json(); if(!r.ok||!j.ok) throw new Error((j&&j.error)||"fetch_failed");\n' +
+'            holder.innerHTML=""; if(!j.messages||!j.messages.length){ holder.textContent="No messages for this number."; loaded=true; return; }\n' +
+'            j.messages.forEach(m=>{\n' +
+'              const rowEl=document.createElement("div"); rowEl.className="msgrow " + (m.direction==="inbound" ? "inbound" : "outbound");\n' +
+'              const ts=document.createElement("span"); ts.className="ts"; ts.textContent=fmtTsISO(m.dateSentUtc);\n' +
+'              const bubble=document.createElement("div"); bubble.className="bubble " + (m.direction==="inbound" ? "in" : "out"); bubble.innerHTML=esc(m.body);\n' +
+'              rowEl.appendChild(ts); rowEl.appendChild(bubble); holder.appendChild(rowEl);\n' +
+'            });\n' +
+'            loaded=true;\n' +
+'          }catch(e){ holder.textContent=(e&&e.message)||"Failed to load messages."; }\n' +
+'        }\n' +
+'      });\n' +
 '    });\n' +
-'\n' +
-'    if (!row.sentiment){\n' +
-'      setTimeout(async () => {\n' +
-'        try{\n' +
-'          const s = await fetchSentiment(row.phone, f, tt);\n' +
-'          if (s) paintSentiment(badge, s);\n' +
-'        }catch{}\n' +
-'      }, 50 * i);\n' +
-'    }\n' +
-'  });\n' +
-'  box.appendChild(table);\n' +
-'}\n' +
+'    box.appendChild(table);\n' +
+'  }\n' +
 '\n' +
 '  function setDateLimits(){ const input=$("ingestDate"); if(!input) return; const now=new Date(); const y=new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()-1); const yyyy=y.getUTCFullYear(); const mm=String(y.getUTCMonth()+1).padStart(2,"0"); const dd=String(y.getUTCDate()).padStart(2,"0"); const ymdMax=yyyy+"-"+mm+"-"+dd; input.max=ymdMax; input.value=ymdMax; }\n' +
 '  function openModal(){ setDateLimits(); const m=$("ingestModal"); if(m) m.style.display="flex"; }\n' +
@@ -280,7 +263,103 @@ module.exports = (req, res) => {
 '</body>\n' +
 '</html>\n';
 
-    res.end(html);
+    
+// === Sentiment UI inject (safe) ===
+const SENTIMENT_SCRIPT = `
+<script>
+(function(){
+  function onReady(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+  function paintSentiment(el, value){
+    var v = (value || '').toLowerCase();
+    el.textContent = v || '—';
+    el.className = 'badge ' + (v === 'positive' ? 'positive' : (v === 'negative' ? 'negative' : 'manual'));
+  }
+  async function fetchSentiment(phone, fromDay, toDay){
+    try{
+      var t = sessionStorage.getItem('authToken');
+      var headers = {}; if (t) headers['authorization'] = 'Bearer ' + t;
+      var r = await fetch('/api/responder?phone=' + encodeURIComponent(phone) + '&from=' + encodeURIComponent(fromDay) + '&to=' + encodeURIComponent(toDay), { headers });
+      var j = await r.json().catch(()=>({}));
+      if (!r.ok || !j.ok) throw new Error((j && j.error) || 'responder_fail');
+      return j.sentiment || null;
+    }catch(e){ return null; }
+  }
+  onReady(function(){
+    try{
+      var css = ''
+        + '.badge{padding:2px 8px;border-radius:999px;font-size:12px;line-height:1;display:inline-block}'
+        + '.badge.positive{background:rgba(34,197,94,.15);color:#22c55e}'
+        + '.badge.negative{background:rgba(239,68,68,.15);color:#ef4444}'
+        + '.badge.manual{background:rgba(234,179,8,.15);color:#eab308}';
+      var s = document.createElement('style'); s.textContent = css; document.head.appendChild(s);
+    }catch(_){}
+    (function patch(){
+      if (typeof window.renderRepeatResponders !== 'function') { setTimeout(patch, 50); return; }
+      var _orig = window.renderRepeatResponders;
+      window.renderRepeatResponders = function(rr, fromDay, toDay){
+        var $ = function(id){ return document.getElementById(id); };
+        var box = $('repeatResponders'); if (!box) { try{ return _orig(rr, fromDay, toDay); }catch(e){ return; } }
+        box.innerHTML = '';
+        if (!rr || !rr.length){
+          var em = document.createElement('div'); em.className = 'muted'; em.textContent = 'No responders in range.'; box.appendChild(em); return;
+        }
+        var table = document.createElement('table');
+        var thead = document.createElement('thead');
+        var trh   = document.createElement('tr');
+        ['Phone','Replies','Sentiment'].forEach(function(h){ var th=document.createElement('th'); th.textContent=h; trh.appendChild(th); });
+        thead.appendChild(trh); table.appendChild(thead);
+        var tbody = document.createElement('tbody'); table.appendChild(tbody);
+        rr.forEach(function(row, i){
+          var tr  = document.createElement('tr'); tr.className = 'expander'; tr.dataset.phone = row.phone;
+          var td1 = document.createElement('td'); td1.textContent = row.phone || '(unknown)';
+          var td2 = document.createElement('td'); td2.textContent = row.count; td2.style.textAlign = 'right';
+          var td3 = document.createElement('td'); td3.style.textAlign = 'right';
+          var badge = document.createElement('span'); badge.className = 'badge manual'; badge.textContent = '—'; td3.appendChild(badge);
+          if (row.sentiment) paintSentiment(badge, row.sentiment);
+          tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tbody.appendChild(tr);
+          var trMsg = document.createElement('tr'); trMsg.style.display = 'none';
+          var tdMsg = document.createElement('td'); tdMsg.colSpan = 3; tdMsg.style.padding = '0 8px 8px';
+          var holder = document.createElement('div'); holder.className = 'messages'; holder.textContent = '';
+          tdMsg.appendChild(holder); trMsg.appendChild(tdMsg); tbody.appendChild(trMsg);
+          var loaded = false, open = false;
+          tr.addEventListener('click', async function(){
+            open = !open; trMsg.style.display = open ? '' : 'none';
+            if (!loaded && open){
+              holder.textContent = 'Loading...';
+              try{
+                var t = sessionStorage.getItem('authToken');
+                var url = '/api/responder?phone=' + encodeURIComponent(row.phone) + '&from=' + encodeURIComponent(fromDay) + '&to=' + encodeURIComponent(toDay);
+                var r = await fetch(url, { headers: { 'authorization': 'Bearer ' + t } });
+                var j = await r.json();
+                if (!r.ok || !j.ok) throw new Error((j && j.error) || 'fetch_failed');
+                holder.innerHTML = '';
+                if (!j.messages || !j.messages.length){ holder.textContent = 'No messages for this number.'; loaded = true; return; }
+                j.messages.forEach(function(m){
+                  var rowEl = document.createElement('div'); rowEl.className = 'msgrow ' + (m.direction === 'inbound' ? 'inbound' : 'outbound');
+                  var ts    = document.createElement('span'); ts.className = 'ts'; ts.textContent = (window.fmtTsISO ? fmtTsISO(m.dateSentUtc) : m.dateSentUtc);
+                  var bubble= document.createElement('div'); bubble.className = 'bubble ' + (m.direction === 'inbound' ? 'in' : 'out');
+                  bubble.innerHTML = (window.esc ? esc(m.body) : (m.body || ''));
+                  rowEl.appendChild(ts); rowEl.appendChild(bubble); holder.appendChild(rowEl);
+                });
+                if (j.sentiment) paintSentiment(badge, j.sentiment);
+                loaded = true;
+              }catch(e){ holder.textContent = (e && e.message) || 'Failed to load messages.'; }
+            }
+          });
+          if (!row.sentiment){
+            setTimeout(async function(){ var s = await fetchSentiment(row.phone, fromDay, toDay); if (s) paintSentiment(badge, s); }, 50 * i);
+          }
+        });
+        box.appendChild(table);
+      };
+    })();
+  });
+})();
+</script>
+`;
+const htmlWithSentiment = html.replace('</body>', SENTIMENT_SCRIPT + '</body>');
+
+    res.end(htmlWithSentiment);
   }catch(e){
     console.error("app_error", e && e.stack || e);
     res.statusCode = 500;
