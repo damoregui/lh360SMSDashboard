@@ -50,7 +50,13 @@ module.exports = (req, res) => {
 '.bubble{ background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12); padding:8px 10px; border-radius:14px; max-width:70%; }\n' +
 '.bubble.out{ border-color: rgba(34,197,94,.5); }\n' +
 '.bubble.in{  border-color: rgba(255,255,255,.28); }\n' +
-'</style>\n' +
+'
+.badge{padding:2px 8px;border-radius:999px;font-size:12px;line-height:1;display:inline-block}
+.badge.positive{background:rgba(34,197,94,.15);color:#22c55e}
+.badge.negative{background:rgba(239,68,68,.15);color:#ef4444}
+.badge.manual{background:rgba(234,179,8,.15);color:#eab308}
+
+</style>\n' +
 '</head>\n' +
 '<body>\n' +
 '<div class="wrap">\n' +
